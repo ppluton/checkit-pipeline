@@ -1,13 +1,14 @@
 """CheckIt.AI fake-news pipeline DAG.
 
 Architecture:
-    Three independent extraction tasks run in parallel, then fan into
+    Four independent extraction tasks run in parallel, then fan into
     a single transformation task that consumes ``data/raw/*`` and
     produces ``data/processed/*.jsonl``::
 
         [extract_guardian]
-        [extract_fakeddit]  ──►  [transform]
+        [extract_fakeddit]   ──►  [transform]
         [extract_snopes]
+        [extract_liar]
 
 Why a parallel fan-in:
     The three sources have no shared state — each writes to its own
@@ -66,6 +67,10 @@ with DAG(
         from src.extraction import snopes
         snopes.fetch()
 
+    def _extract_liar():
+        from src.extraction import liar
+        liar.fetch()
+
     def _transform():
         pass
 
@@ -81,9 +86,13 @@ with DAG(
         task_id="extract_snopes",
         python_callable=_extract_snopes,
     )
+    extract_liar = PythonOperator(
+        task_id="extract_liar",
+        python_callable=_extract_liar,
+    )
     transform = PythonOperator(
         task_id="transform",
         python_callable=_transform,
     )
 
-    [extract_guardian, extract_fakeddit, extract_snopes] >> transform
+    [extract_guardian, extract_fakeddit, extract_snopes, extract_liar] >> transform

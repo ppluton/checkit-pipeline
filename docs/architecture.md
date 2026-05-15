@@ -102,6 +102,28 @@ Si JSON-LD est absent (cas des `/news/` qui sont des articles narratifs, pas des
 
 Le champ `extraction_method` (`claim_review_jsonld` vs `css_fallback`) est conservé dans la sortie brute : utile pour debug et pour mesurer le taux de couverture JSON-LD.
 
+### 3.4 LIAR — source NLP-only auxiliaire
+
+LIAR est **texte seul**, ce qui contredit en apparence le contrat "multimodal" de tout le reste du pipeline. Pourquoi l'inclure ?
+
+- **Labels expert PolitiFact** sur 6 niveaux (`pants-fire`, `false`, `barely-true`, `half-true`, `mostly-true`, `true`) — granularité supérieure à Snopes sur les déclarations politiques.
+- **Le futur classifieur multimodal aura une branche texte** entraînable indépendamment. Cette branche bénéficie de LIAR même si la branche vision ne le voit jamais. C'est le pattern standard pour les architectures multimodales à entrées optionnelles (cf. CLIP, FLAVA).
+- **Le schéma supporte nativement** l'absence d'image : `image_url` est nullable, `metadata.has_image` documente l'absence explicitement.
+
+#### Choix d'accès aux données
+
+Le loader Python officiel (`load_dataset("liar")`) ne fonctionne plus dans les versions récentes de `datasets` (les scripts de chargement sont dépréciés). On contourne en lisant directement les fichiers Parquet auto-convertis par HuggingFace sur la branche `refs/convert/parquet` :
+
+```
+https://huggingface.co/datasets/ucsbnlp/liar/resolve/refs%2Fconvert%2Fparquet/default/{train,validation,test}/0000.parquet
+```
+
+C'est un pattern propre : pas de script Python externe à exécuter, juste 3 fichiers Parquet stables. `pandas.read_parquet` les lit en quelques secondes avec `pyarrow`.
+
+#### Conséquence sur le DAG
+
+`extract_liar` est ajouté en parallèle aux trois autres tâches d'extraction. La normalisation ne change pas de stratégie : un module par source, dispatchée sur `source = "liar"` produira des `Article` avec `image_url = null` et `metadata.has_image = false`. Le validator devra savoir tolérer ces rows si on l'autorise via une option (par défaut on rejette `null`-image pour la branche multimodale).
+
 ## 4. Schéma unifié — pourquoi ce design
 
 ```json
@@ -158,5 +180,6 @@ Points de design :
 | Naming `*_extractor.py` | `<source>.py` | Le dossier `src/extraction/` rend le suffixe redondant |
 | `urllib.robotparser` (implicite) | `protego` | Bug stdlib sur les directives non standard |
 | `praw` (Reddit pour Fakeddit images) | Direct TSV streaming | Le TSV multimodal Fakeddit contient déjà les URLs d'image, PRAW est superflu |
+| `load_dataset("liar")` | Lecture Parquet directe via URL HF | Les scripts de chargement sont dépréciés dans `datasets>=3.0`. On utilise la branche auto-convertie `refs/convert/parquet`. |
 
 Toutes ces divergences sont des améliorations qualité ou des contournements de limites techniques, jamais des raccourcis fonctionnels. Le contrat de sortie (schéma unifié, JSON Lines, séparation extract/transform/load) reste strictement celui du spec.
