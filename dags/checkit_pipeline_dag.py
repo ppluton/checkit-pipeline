@@ -20,9 +20,9 @@ with DAG(
     tags=["checkit", "etl"],
 ) as dag:
 
-    def _extract_newsdata():
-        from src.extraction import newsdata
-        newsdata.fetch()
+    def _extract_guardian():
+        from src.extraction import guardian
+        guardian.fetch()
 
     def _extract_fakeddit():
         from src.extraction import fakeddit
@@ -35,9 +35,9 @@ with DAG(
     def _transform():
         pass
 
-    extract_newsdata = PythonOperator(
-        task_id="extract_newsdata",
-        python_callable=_extract_newsdata,
+    extract_guardian = PythonOperator(
+        task_id="extract_guardian",
+        python_callable=_extract_guardian,
     )
     extract_fakeddit = PythonOperator(
         task_id="extract_fakeddit",
@@ -52,4 +52,4 @@ with DAG(
         python_callable=_transform,
     )
 
-    [extract_newsdata, extract_fakeddit, extract_snopes] >> transform
+    [extract_guardian, extract_fakeddit, extract_snopes] >> transform

@@ -135,53 +135,61 @@ Cas d'usage directement aligné avec la mission CheckIt.AI. C'est le dataset le 
 
 ---
 
-### 4. NewsData.io (API temps réel)
+### 4. The Guardian Open Platform (API temps réel)
 
-**Lien :** https://newsdata.io  
-**Type :** API REST commerciale (plan gratuit disponible)
+**Lien :** https://open-platform.theguardian.com  
+**Type :** API REST officielle du journal *The Guardian* (plan développeur gratuit)
 
 | Champ | Valeur |
 |---|---|
-| **Modalités** | Texte + URL d'image ✅ |
+| **Modalités** | Texte + Thumbnail ✅ |
 | **Format** | JSON (API REST) |
-| **Langue** | Multilingue (dont EN, FR) |
-| **Volume** | ~200 requêtes/jour (plan gratuit) |
-| **Labels** | ❌ Aucun label (actualités brutes) |
-| **Qualité des labels** | N/A — source de données fraîches non labelisées |
-| **Droits d'usage** | Plan gratuit pour usage non-commercial |
+| **Langue** | Anglais |
+| **Volume** | 5 000 requêtes/jour (plan developer gratuit) |
+| **Labels** | ❌ Aucun label (presse éditoriale) |
+| **Qualité des labels** | N/A — sert de **baseline "real"** car presse de qualité éditoriale |
+| **Droits d'usage** | Plan développeur gratuit, clé obtenue en libre-service |
 
 **Méthode d'extraction :**
 ```python
 import requests
 
-API_KEY = "your_api_key"
-url = "https://newsdata.io/api/1/news"
+API_KEY = "your_guardian_api_key"
+url = "https://content.guardianapis.com/search"
 params = {
-    "apikey": API_KEY,
-    "q": "fake news OR misinformation",
-    "language": "en",
-    "image": 1  # Uniquement les articles avec image
+    "q": "misinformation OR disinformation OR fact-check",
+    "api-key": API_KEY,
+    "page-size": 50,
+    "show-fields": "headline,trailText,body,thumbnail,byline,lastModified",
+    "order-by": "newest",
 }
 response = requests.get(url, params=params)
-articles = response.json()["results"]
+articles = response.json()["response"]["results"]
 ```
 
 **Réponse JSON :**
 ```json
 {
-  "title": "...",
-  "description": "...",
-  "content": "...",
-  "image_url": "https://...",
-  "pubDate": "2026-05-15",
-  "source_id": "bbc"
+  "id": "world/2026/may/15/...",
+  "type": "article",
+  "sectionName": "World news",
+  "webPublicationDate": "2026-05-15T10:30:00Z",
+  "webTitle": "...",
+  "webUrl": "https://www.theguardian.com/...",
+  "fields": {
+    "headline": "...",
+    "trailText": "...",
+    "body": "<p>...</p>",
+    "thumbnail": "https://...",
+    "byline": "..."
+  }
 }
 ```
 
 **Pourquoi c'est pertinent :**  
-Alimente le pipeline avec des données fraîches en temps réel. Utilisable pour enrichir le dataset d'entraînement ou pour le scoring en production. À combiner avec un système de labellisation automatique.
+Alimente le pipeline avec des articles frais issus d'un média de référence. Sert de **classe "real" haute crédibilité** pour équilibrer les sources fact-checker (Snopes, FakeNewsNet) qui se concentrent sur la désinformation. Free tier large (5000 req/j) suffisant pour un usage portfolio + prod légère.
 
-> ⚠️ **Limite :** Pas de labels. Cette source doit être combinée avec un fact-checker externe ou une heuristique de labellisation.
+> ⚠️ **Limite :** Pas de labels — Guardian est une source d'articles, pas un fact-checker. À utiliser en complément des sources labelisées, ou avec un score de crédibilité hérité du domaine.
 
 ---
 
@@ -268,7 +276,7 @@ Source en flux continu — permet d'enrichir le dataset automatiquement. Labels 
 | **FAKEDDIT** | Texte + Image | Oui (6 classes) | ⭐⭐⭐⭐ | ~1M | GitHub + Reddit API | Entraînement principal |
 | **FakeNewsNet** | Texte + Image URLs | Oui (binaire) | ⭐⭐⭐⭐⭐ | ~23K | GitHub + scraping | Entraînement (haute qualité) |
 | **NewsCLIPpings** | Texte + Image | Oui (binaire) | ⭐⭐⭐⭐ | ~71K | GitHub + VisualNews | Composante vision |
-| **NewsData.io** | Texte + Image | Non | N/A | ~200/j | API REST | Données fraîches (prod) |
+| **The Guardian** | Texte + Thumbnail | Non | N/A | 5000/j | API REST | Baseline "real" + données fraîches |
 | **LIAR Dataset** | Texte seul | Oui (6 niveaux) | ⭐⭐⭐⭐⭐ | ~12K | HuggingFace | NLP / labels fins |
 | **Snopes** | Texte + Image | Oui (nuancés) | ⭐⭐⭐⭐⭐ | ~20/sem | RSS + scraping | Enrichissement continu |
 
@@ -281,7 +289,7 @@ Toutes les sources seront normalisées dans le schéma suivant :
 ```json
 {
   "id": "uuid-v4",
-  "source": "fakeddit | fakenenewsnet | snopes | ...",
+  "source": "fakeddit | fakenewsnet | snopes | guardian | ...",
   "title": "Article or post title",
   "content": "Full text content",
   "image_url": "https://...",
@@ -308,13 +316,13 @@ Toutes les sources seront normalisées dans le schéma suivant :
 2. **Vérifier l'association texte-image** — S'assurer que chaque entrée a bien les deux champs non-nuls avant d'insérer en base.
 3. **Champs secondaires utiles** — Conserver `domain`, `source_credibility`, `pubDate` : ils peuvent être des features pour le modèle.
 4. **Équilibre des classes** — FAKEDDIT et FakeNewsNet sont relativement équilibrés, mais vérifier avant entraînement.
-5. **Droits d'usage** — LIAR et FakeNewsNet : recherche uniquement. NewsData.io : vérifier les CGU du plan gratuit.
+5. **Droits d'usage** — LIAR et FakeNewsNet : recherche uniquement. The Guardian : plan développeur gratuit (non-commercial), citer la source.
 
 ---
 
 ## 🔗 Prochaine étape
 
-→ **Étape 2** : Scripts d'extraction Python pour FAKEDDIT (données statiques) et NewsData.io (API temps réel)
+→ **Étape 2** : Scripts d'extraction Python pour FAKEDDIT (données statiques) et The Guardian (API temps réel)
 
 ---
 

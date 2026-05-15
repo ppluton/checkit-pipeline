@@ -20,7 +20,7 @@ Collecte, nettoie et normalise des articles depuis 6 sources hétérogènes (Red
 | Source | Modalités | Volume | Labels | Méthode |
 |---|---|---|---|---|
 | **FAKEDDIT** | Texte + Image | ~1M | 2 et 6 classes | TSV + Reddit API |
-| **NewsData.io** | Texte + URL image | ~200/j | ❌ | API REST |
+| **The Guardian** | Texte + Thumbnail | 5000/j | ❌ | API REST (clé gratuite) |
 | **Snopes** | Texte + Image | ~20/sem | Nuancés (5+) | RSS + scraping |
 | **FakeNewsNet** | Texte + Image URLs | ~23K | Binaire (PolitiFact) | GitHub + scraping |
 | **NewsCLIPpings** | Texte + Image | ~71K | Binaire (hors-contexte) | GitHub + VisualNews |
@@ -36,7 +36,7 @@ checkit-pipeline/
 │   └── checkit_pipeline_dag.py    # Pipeline principal : extract → transform
 ├── src/
 │   ├── extraction/                # Un module par source
-│   │   ├── newsdata.py            # API REST temps réel
+│   │   ├── guardian.py            # The Guardian Content API
 │   │   ├── fakeddit.py            # Dataset Reddit (TSV + PRAW)
 │   │   └── snopes.py              # RSS + scraping HTML
 │   ├── transformation/
@@ -88,7 +88,7 @@ Prérequis : [uv](https://github.com/astral-sh/uv) (`brew install uv` ou `curl -
 ```bash
 uv sync
 cp .env.example .env
-# Renseigner NEWSDATA_API_KEY et FAKEDDIT_TSV_PATH
+# Renseigner GUARDIAN_API_KEY (gratuit : https://open-platform.theguardian.com/access/) et FAKEDDIT_TSV_PATH
 ```
 
 ## Utilisation
@@ -106,7 +106,7 @@ Interface : http://localhost:8080 — le DAG `checkit_pipeline` apparaît dans l
 
 ```bash
 uv run python -m src.extraction.fakeddit
-uv run python -m src.extraction.newsdata
+uv run python -m src.extraction.guardian
 uv run python -m src.extraction.snopes
 ```
 

@@ -33,7 +33,7 @@ Doc de cadrage : `Module_03_Etape1_Sources_Exploration.md`.
 | Source | Modalités | Méthode | Priorité |
 |---|---|---|---|
 | FAKEDDIT | Texte + Image | TSV + Reddit API | 🟢 Étape 2 |
-| NewsData.io | Texte + URL image | API REST | 🟢 Étape 2 |
+| The Guardian | Texte + Thumbnail | API REST (clé gratuite) | 🟢 Étape 2 |
 | Snopes | Texte + Image | RSS + scraping HTML | 🟡 |
 | FakeNewsNet | Texte + Image URLs | Clone GitHub + scraping | 🟡 |
 | NewsCLIPpings | Texte + Image | GitHub + VisualNews | 🔵 Vision |
@@ -114,7 +114,7 @@ uv run airflow standalone
 
 # Lancer une extraction isolée
 uv run python -m src.extraction.fakeddit
-uv run python -m src.extraction.newsdata
+uv run python -m src.extraction.guardian
 
 # Tests
 uv run pytest
@@ -127,6 +127,6 @@ uv run ruff format .
 ## Pièges connus
 
 - **FakeNewsNet** : URLs d'articles expirent → scraper les images dès la collecte initiale.
-- **NewsData.io** : plan gratuit limité à ~200 req/j → cacher les réponses en `raw/`.
+- **The Guardian** : 5000 req/jour avec clé developer gratuite, rate limit 1 req/s respecté côté code (`RATE_LIMIT_SLEEP`).
 - **Snopes** : robots.txt à vérifier avant tout scraping automatisé.
 - **FAKEDDIT** : ~1M de posts → ne pas tout charger en mémoire, streamer.

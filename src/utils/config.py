@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
 
-NEWSDATA_API_KEY = os.getenv("NEWSDATA_API_KEY")
+GUARDIAN_API_KEY = os.getenv("GUARDIAN_API_KEY")
 FAKEDDIT_TSV_PATH = os.getenv("FAKEDDIT_TSV_PATH")
 
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
