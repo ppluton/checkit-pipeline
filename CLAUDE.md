@@ -73,10 +73,22 @@ Toute source doit être normalisée vers :
 
 ## Workflow
 
-- Commits atomiques, conventionnels (`feat:`, `fix:`, `chore:`, `docs:`).
-- Ne pas commit sans demande explicite.
-- Ne pas push sans confirmation.
+- Projet de **portfolio** : tout livrable (code, commits, PRs, docs) doit être **professionnel** et écrit comme par un développeur humain.
+- Commits atomiques, conventionnels (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`).
+- Messages de commit en **anglais**, à l'impératif court (50 char max pour le sujet), corps optionnel en wrap 72 char expliquant le *pourquoi*.
+- **Ne jamais inclure** : `Co-Authored-By: Claude*`, `🤖 Generated with Claude Code`, ni aucune mention d'assistant IA dans commits, PRs, code, docs ou commentaires.
+- **Ne pas signer** les commits avec une trailer co-author IA. Le commit est attribué à Pierre Pluton uniquement.
+- Pas d'emojis dans les commits, PRs ou docs publics (README, CLAUDE.md interne ok).
+- Code en anglais (noms de variables, fonctions, commentaires). Docs projet en français acceptées.
+- Ne pas commit sans demande explicite. Ne pas push sans confirmation.
 - Branche principale : `main`.
+
+## Ton & style des livrables
+
+- README, commits, PRs : ton **factuel et technique**, pas marketing, pas conversationnel.
+- Pas de formulations type "I've created...", "Let me know if...", "Hope this helps".
+- Préférer la voix passive ou impersonnelle dans les descriptions techniques.
+- Pas de mention du processus de création (ex: "généré avec X", "écrit avec l'aide de Y").
 
 ## Commandes utiles
 
