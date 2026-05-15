@@ -40,15 +40,14 @@ Key design choices:
 Reference: https://open-platform.theguardian.com/documentation/
 """
 
-import json
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
 import requests
 
-from src.utils.config import GUARDIAN_API_KEY, RAW_DIR
+from src.utils.config import GUARDIAN_API_KEY
+from src.utils.io import write_jsonl
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -125,22 +124,19 @@ def fetch(
     Returns:
         The path of the JSONL file written.
     """
-    out_dir = RAW_DIR / "guardian"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    out_path = out_dir / f"guardian_{timestamp}.jsonl"
-
-    written = 0
     skipped = 0
-    with out_path.open("w", encoding="utf-8") as f:
+
+    def _iter_with_filter() -> Iterator[dict]:
+        nonlocal skipped
         for article in _iter_articles(query, from_date, max_pages):
             if require_image and not article.get("fields", {}).get("thumbnail"):
                 skipped += 1
                 continue
-            f.write(json.dumps(article, ensure_ascii=False) + "\n")
-            written += 1
+            yield article
 
-    logger.info("Done: %d records to %s (skipped %d without thumbnail)", written, out_path, skipped)
+    out_path, _ = write_jsonl(_iter_with_filter(), "guardian")
+    if skipped:
+        logger.info("Skipped %d articles without thumbnail", skipped)
     return out_path
 
 

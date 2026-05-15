@@ -61,7 +61,7 @@ import requests
 from bs4 import BeautifulSoup
 from protego import Protego
 
-from src.utils.config import RAW_DIR
+from src.utils.io import write_jsonl
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -202,14 +202,11 @@ def fetch(limit: int = 20) -> Path:
         still produced. This matches the spec's requirement that
         "data engineering errors should be observable, not fatal".
     """
-    out_dir = RAW_DIR / "snopes"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    out_path = out_dir / f"snopes_{timestamp}.jsonl"
-
-    written = 0
     skipped = 0
-    with out_path.open("w", encoding="utf-8") as f:
+
+    def _iter_articles() -> Iterator[dict]:
+        nonlocal skipped
+        seen = 0
         for entry in _iter_feed_entries(limit):
             if not _robots_allowed(entry["url"]):
                 logger.warning("Blocked by robots.txt: %s", entry["url"])
@@ -220,22 +217,27 @@ def fetch(limit: int = 20) -> Path:
                 article = _parse_article(html, entry["url"])
                 article["rss_title"] = entry["title"]
                 article["rss_published"] = entry["published"]
-                f.write(json.dumps(article, ensure_ascii=False) + "\n")
-                written += 1
+                seen += 1
                 logger.info(
                     "[%d/%d] %s -> verdict=%r (%s)",
-                    written,
+                    seen,
                     limit,
                     entry["url"],
                     article.get("verdict"),
                     article["extraction_method"],
                 )
-            except Exception as exc:
-                logger.exception("Failed to scrape %s: %s", entry["url"], exc)
+                yield article
+            except requests.RequestException as exc:
+                logger.warning("HTTP error on %s: %s", entry["url"], exc)
+                skipped += 1
+            except Exception:
+                logger.exception("Parse error on %s", entry["url"])
                 skipped += 1
             time.sleep(RATE_LIMIT_SLEEP)
 
-    logger.info("Done: %d records to %s (skipped %d)", written, out_path, skipped)
+    out_path, _ = write_jsonl(_iter_articles(), "snopes")
+    if skipped:
+        logger.info("Skipped %d articles", skipped)
     return out_path
 
 

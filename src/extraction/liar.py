@@ -41,13 +41,12 @@ Reference:
     - HF dataset: https://huggingface.co/datasets/ucsbnlp/liar
 """
 
-import json
 from pathlib import Path
 from typing import Iterator
 
 import pandas as pd
 
-from src.utils.config import RAW_DIR
+from src.utils.io import write_jsonl
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -107,19 +106,12 @@ def fetch(
     Returns:
         Path to the JSONL file written.
     """
-    out_dir = RAW_DIR / "liar"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / output_name
-
-    written = 0
-    with out_path.open("w", encoding="utf-8") as f:
-        for record in _iter_records(splits, limit):
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            written += 1
-            if written % 2000 == 0:
-                logger.info("Wrote %d records", written)
-
-    logger.info("Done: %d records to %s", written, out_path)
+    out_path, _ = write_jsonl(
+        _iter_records(splits, limit),
+        "liar",
+        filename=output_name,
+        log_every=2000,
+    )
     return out_path
 
 

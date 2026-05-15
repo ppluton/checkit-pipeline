@@ -33,13 +33,13 @@ Key design choices:
 Reference: https://github.com/entitize/Fakeddit
 """
 
-import json
 from pathlib import Path
 from typing import Iterator
 
 import pandas as pd
 
-from src.utils.config import FAKEDDIT_TSV_PATH, RAW_DIR
+from src.utils.config import FAKEDDIT_TSV_PATH
+from src.utils.io import write_jsonl
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -77,7 +77,7 @@ def _iter_records(source: str, limit: int | None) -> Iterator[dict]:
     )
     yielded = 0
     for chunk in reader:
-        chunk = chunk.dropna(subset=["image_url"])
+        chunk = chunk[chunk["image_url"].fillna("").str.len() > 0]
         for row in chunk.to_dict(orient="records"):
             yield row
             yielded += 1
@@ -97,20 +97,8 @@ def fetch(limit: int | None = None, output_name: str = "fakeddit.jsonl") -> Path
         The path of the JSONL file actually written.
     """
     source = _resolve_source()
-    out_dir = RAW_DIR / "fakeddit"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / output_name
-
     logger.info("Reading from %s", source)
-    written = 0
-    with out_path.open("w", encoding="utf-8") as f:
-        for record in _iter_records(source, limit):
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            written += 1
-            if written % 1000 == 0:
-                logger.info("Wrote %d records", written)
-
-    logger.info("Done: %d records to %s", written, out_path)
+    out_path, _ = write_jsonl(_iter_records(source, limit), "fakeddit", filename=output_name)
     return out_path
 
 
