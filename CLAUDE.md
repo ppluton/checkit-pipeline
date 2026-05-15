@@ -1,0 +1,102 @@
+# CLAUDE.md — checkit-pipeline
+
+## Contexte projet
+
+**CheckIt.AI** — Pipeline ETL pour la détection de **fake news multimodales** (texte + image). Collecte, normalise et valide des articles depuis 6 sources hétérogènes pour alimenter un modèle de classification.
+
+Doc de cadrage : `Module_03_Etape1_Sources_Exploration.md`.
+
+## Stack
+
+- **Langage** : Python 3.11+
+- **Orchestration** : Apache Airflow
+- **Extraction** : `requests`, `feedparser`, `beautifulsoup4`, `praw` (Reddit), `datasets` (HuggingFace)
+- **Traitement** : `pandas`
+- **Config** : `python-dotenv`
+- **Tests** : `pytest` (à ajouter)
+
+> Les préférences globales (bun, Biome, bun:test) **ne s'appliquent pas ici** : projet Python pur.
+
+## Sources
+
+| Source | Modalités | Méthode | Priorité |
+|---|---|---|---|
+| FAKEDDIT | Texte + Image | TSV + Reddit API | 🟢 Étape 2 |
+| NewsData.io | Texte + URL image | API REST | 🟢 Étape 2 |
+| Snopes | Texte + Image | RSS + scraping HTML | 🟡 |
+| FakeNewsNet | Texte + Image URLs | Clone GitHub + scraping | 🟡 |
+| NewsCLIPpings | Texte + Image | GitHub + VisualNews | 🔵 Vision |
+| LIAR | Texte seul | HuggingFace `datasets` | 🔵 NLP |
+
+## Schéma de sortie unifié (JSON Lines)
+
+Toute source doit être normalisée vers :
+
+```json
+{
+  "id": "uuid-v4",
+  "source": "fakeddit | newsdata | snopes | ...",
+  "title": "...",
+  "content": "...",
+  "image_url": "https://...",
+  "label": "fake | real",
+  "label_detail": "false | misleading | satire | mixture | ...",
+  "language": "en",
+  "domain": "snopes.com",
+  "collected_at": "2026-05-15T00:00:00Z",
+  "metadata": {
+    "source_credibility": "high | medium | low",
+    "has_image": true,
+    "label_method": "human_expert | community | automated"
+  }
+}
+```
+
+**Stockage** : `data/raw/<source>/*.jsonl` (brut par source) puis `data/processed/*.jsonl` (unifié).
+
+## Règles de code
+
+- **Pas de over-engineering** : stubs minimaux d'abord, on étoffe selon le besoin.
+- **Pas de commentaires** sauf logique non-évidente (ex: contournement d'un bug d'API).
+- **Typage** : annotations Python sur tout signature publique.
+- **Logger** : utiliser `src.utils.logger.get_logger(__name__)`, jamais `print`.
+- **Config** : passer par `src.utils.config`, jamais `os.getenv` direct dans le code métier.
+- **Préserver les nuances de labels** : ne pas réduire `Mixture`/`Unproven` à un binaire — utiliser `label_detail`.
+
+## Règles ETL spécifiques
+
+1. **Extraction → `data/raw/<source>/`** : format brut de la source, peu transformé.
+2. **Transformation** : `cleaner` (HTML/Unicode) → `normalizer` (schéma cible) → `validator` (champs requis, association texte-image).
+3. **Rate limiting** : `time.sleep(1)` minimum entre requêtes scraping. Vérifier `robots.txt` pour Snopes.
+4. **Idempotence** : les DAGs doivent pouvoir être rejoués sans dupliquer (clé : `(source, id)`).
+5. **Pas de secrets en clair** : tout passe par `.env` (ignoré dans git).
+
+## Workflow
+
+- Commits atomiques, conventionnels (`feat:`, `fix:`, `chore:`, `docs:`).
+- Ne pas commit sans demande explicite.
+- Ne pas push sans confirmation.
+- Branche principale : `main`.
+
+## Commandes utiles
+
+```bash
+# Setup
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+
+# Airflow standalone (dev)
+export AIRFLOW_HOME=$(pwd)/.airflow
+airflow standalone
+
+# Lancer une extraction isolée
+python -m src.extraction.newsdata
+```
+
+## Pièges connus
+
+- **FakeNewsNet** : URLs d'articles expirent → scraper les images dès la collecte initiale.
+- **NewsData.io** : plan gratuit limité à ~200 req/j → cacher les réponses en `raw/`.
+- **Snopes** : robots.txt à vérifier avant tout scraping automatisé.
+- **FAKEDDIT** : ~1M de posts → ne pas tout charger en mémoire, streamer.
