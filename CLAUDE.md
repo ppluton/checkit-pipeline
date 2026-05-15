@@ -9,13 +9,24 @@ Doc de cadrage : `Module_03_Etape1_Sources_Exploration.md`.
 ## Stack
 
 - **Langage** : Python 3.11+
+- **Gestion des deps** : **uv** (pas pip, pas poetry). Manifeste : `pyproject.toml`, lockfile : `uv.lock` (commité).
 - **Orchestration** : Apache Airflow
 - **Extraction** : `requests`, `feedparser`, `beautifulsoup4`, `praw` (Reddit), `datasets` (HuggingFace)
 - **Traitement** : `pandas`
+- **Validation** : `pydantic>=2`
 - **Config** : `python-dotenv`
-- **Tests** : `pytest` (à ajouter)
+- **Tests** : `pytest`
+- **Lint/format** : `ruff` (configuré dans `pyproject.toml`)
 
 > Les préférences globales (bun, Biome, bun:test) **ne s'appliquent pas ici** : projet Python pur.
+
+### Workflow uv
+
+- Ajouter une dépendance : `uv add <pkg>`
+- Ajouter une dep de dev : `uv add --dev <pkg>`
+- Lancer un script dans l'env : `uv run python -m src.extraction.fakeddit`
+- Sync de l'env depuis le lockfile : `uv sync`
+- Ne **jamais** committer `requirements.txt` ni utiliser `pip install` directement.
 
 ## Sources
 
@@ -93,17 +104,24 @@ Toute source doit être normalisée vers :
 ## Commandes utiles
 
 ```bash
-# Setup
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+# Setup initial
+uv sync
 cp .env.example .env
 
 # Airflow standalone (dev)
 export AIRFLOW_HOME=$(pwd)/.airflow
-airflow standalone
+uv run airflow standalone
 
 # Lancer une extraction isolée
-python -m src.extraction.newsdata
+uv run python -m src.extraction.fakeddit
+uv run python -m src.extraction.newsdata
+
+# Tests
+uv run pytest
+
+# Lint
+uv run ruff check .
+uv run ruff format .
 ```
 
 ## Pièges connus

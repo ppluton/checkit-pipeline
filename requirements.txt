@@ -1,6 +1,0 @@
-apache-airflow
-requests
-feedparser
-beautifulsoup4
-pandas
-python-dotenv

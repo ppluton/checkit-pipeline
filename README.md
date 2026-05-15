@@ -8,9 +8,12 @@ Collecte, nettoie et normalise des articles depuis 6 sources hétérogènes (Red
 ## Stack
 
 - **Orchestration** : Apache Airflow
+- **Gestion des dépendances** : [uv](https://github.com/astral-sh/uv)
 - **Extraction** : `requests`, `feedparser`, `beautifulsoup4`
 - **Traitement** : `pandas`
+- **Validation** : `pydantic>=2`
 - **Config** : `python-dotenv`
+- **Tests / lint** : `pytest`, `ruff`
 
 ## Sources de données
 
@@ -80,12 +83,12 @@ Toutes les sources sont normalisées vers ce schéma JSON Lines :
 
 ## Installation
 
+Prérequis : [uv](https://github.com/astral-sh/uv) (`brew install uv` ou `curl -LsSf https://astral.sh/uv/install.sh | sh`).
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
 cp .env.example .env
-# Éditer .env et renseigner NEWSDATA_API_KEY
+# Renseigner NEWSDATA_API_KEY et FAKEDDIT_TSV_PATH
 ```
 
 ## Utilisation
@@ -94,7 +97,7 @@ cp .env.example .env
 
 ```bash
 export AIRFLOW_HOME=$(pwd)/.airflow
-airflow standalone
+uv run airflow standalone
 ```
 
 Interface : http://localhost:8080 — le DAG `checkit_pipeline` apparaît dans la liste.
@@ -102,9 +105,17 @@ Interface : http://localhost:8080 — le DAG `checkit_pipeline` apparaît dans l
 ### Exécuter une extraction isolée
 
 ```bash
-python -m src.extraction.newsdata
-python -m src.extraction.fakeddit
-python -m src.extraction.snopes
+uv run python -m src.extraction.fakeddit
+uv run python -m src.extraction.newsdata
+uv run python -m src.extraction.snopes
+```
+
+### Tests & lint
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run ruff format .
 ```
 
 ## Pipeline
