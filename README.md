@@ -1,75 +1,61 @@
 # checkit-pipeline
 
-**Pipeline ETL pour la détection de fake news multimodales** (texte + image).
-Projet CheckIt.AI — Data Engineering.
+> **CheckIt.AI · Data Engineering**
+> Pipeline ETL automatisé pour extraire, transformer et charger des données multimodales (texte + image) destinées à entraîner un modèle de détection de fake news.
 
-Collecte, nettoie et normalise des articles depuis 6 sources hétérogènes (Reddit, fact-checkers, datasets académiques, API d'actualité) vers un schéma unifié JSON Lines prêt à l'entraînement d'un modèle de classification.
+CheckIt.AI développe des outils d'intelligence artificielle pour lutter contre la désinformation. Ce projet couvre l'intégralité du cycle data engineering : ingestion multi-sources, normalisation vers un schéma unifié, validation, orchestration Airflow et monitoring.
+
+## Mission
+
+Construire un pipeline qui ingère des publications **texte + image** depuis des sources hétérogènes (datasets académiques, API d'actualité, fact-checkers via scraping), les unifie dans un format prêt-à-modèle, et tourne quotidiennement de manière fiable et observable.
+
+```
+ Sources externes ──► EXTRACT ──► data/raw/*.jsonl ──► TRANSFORM ──► data/processed/*.jsonl ──► LOAD ──► PostgreSQL
+                                                       (cleaner · normalizer · validator)
+```
+
+Voir [`docs/architecture.md`](docs/architecture.md) pour les choix techniques détaillés.
 
 ## Stack
 
-- **Orchestration** : Apache Airflow
-- **Gestion des dépendances** : [uv](https://github.com/astral-sh/uv)
-- **Extraction** : `requests`, `feedparser`, `beautifulsoup4`
-- **Traitement** : `pandas`
-- **Validation** : `pydantic>=2`
-- **Config** : `python-dotenv`
-- **Tests / lint** : `pytest`, `ruff`
+| Couche | Outil | Raison |
+|---|---|---|
+| Orchestration | Apache Airflow | Standard ETL, DAGs versionnés, retry/scheduling natif |
+| Gestion deps | [uv](https://github.com/astral-sh/uv) | Reproductible (`uv.lock`), ~10× plus rapide que pip |
+| Extraction HTTP | `requests`, `feedparser`, `beautifulsoup4`, `protego` | Stack scraping mature |
+| Validation | `pydantic>=2` | Contrats stricts au niveau des frontières IO |
+| Traitement | `pandas` | Streaming TSV via `chunksize`, idiomatique pour ETL |
+| Config | `python-dotenv` | `.env` requis par le spec |
+| Tests / lint | `pytest`, `ruff` | Tooling Astral cohérent avec uv |
 
 ## Sources de données
 
-| Source | Modalités | Volume | Labels | Méthode |
-|---|---|---|---|---|
-| **FAKEDDIT** | Texte + Image | ~1M | 2 et 6 classes | TSV + Reddit API |
-| **The Guardian** | Texte + Thumbnail | 5000/j | ❌ | API REST (clé gratuite) |
-| **Snopes** | Texte + Image | ~20/sem | Nuancés (5+) | RSS + scraping |
-| **FakeNewsNet** | Texte + Image URLs | ~23K | Binaire (PolitiFact) | GitHub + scraping |
-| **NewsCLIPpings** | Texte + Image | ~71K | Binaire (hors-contexte) | GitHub + VisualNews |
-| **LIAR** | Texte seul | ~12K | 6 niveaux | HuggingFace |
+| Source | Modalités | Volume | Labels | Méthode | Statut |
+|---|---|---|---|---|---|
+| [FAKEDDIT](https://github.com/entitize/Fakeddit) | Texte + Image | ~1M | 2 et 6 classes | TSV streaming | ✅ Implémenté |
+| [The Guardian](https://open-platform.theguardian.com) | Texte + Thumbnail | 5 000 req/jour | ❌ (baseline real) | API REST | ✅ Implémenté |
+| [Snopes](https://www.snopes.com/feed/) | Texte + Image | ~20/sem | Nuancés (`True`, `False`, `Mixture`, `Mostly True`, ...) | RSS + ClaimReview JSON-LD + BS4 | ✅ Implémenté |
+| [FakeNewsNet](https://github.com/KaiDMML/FakeNewsNet) | Texte + Image URLs | ~23K | Binaire (PolitiFact) | GitHub + scraping | 🔲 Backlog |
+| [NewsCLIPpings](https://github.com/g-luo/news_clippings) | Texte + Image | ~71K | Binaire (hors-contexte) | GitHub + VisualNews | 🔲 Backlog (vision) |
+| [LIAR](https://huggingface.co/datasets/liar) | Texte seul | ~12K | 6 niveaux | HuggingFace `datasets` | 🔲 Backlog (NLP) |
 
-Voir `Module_03_Etape1_Sources_Exploration.md` pour le détail.
+Le rapport d'exploration détaillé (Étape 1) est dans [`docs/rapport_sources.md`](docs/rapport_sources.md).
 
-## Structure
-
-```
-checkit-pipeline/
-├── dags/                          # DAGs Airflow
-│   └── checkit_pipeline_dag.py    # Pipeline principal : extract → transform
-├── src/
-│   ├── extraction/                # Un module par source
-│   │   ├── guardian.py            # The Guardian Content API
-│   │   ├── fakeddit.py            # Dataset Reddit (TSV + PRAW)
-│   │   └── snopes.py              # RSS + scraping HTML
-│   ├── transformation/
-│   │   ├── cleaner.py             # Nettoyage HTML / Unicode
-│   │   ├── normalizer.py          # Vers schéma unifié
-│   │   └── validator.py           # Vérification champs requis
-│   └── utils/
-│       ├── logger.py              # Logger stdout formaté
-│       └── config.py              # Chargement .env + chemins
-├── data/
-│   ├── raw/                       # Données brutes par source (JSONL)
-│   └── processed/                 # Dataset unifié (JSONL)
-├── tests/                         # pytest
-├── notebooks/                     # Exploration / prototypage
-├── .env.example                   # Template variables d'env
-├── requirements.txt
-├── CLAUDE.md                      # Instructions pour assistant IA
-└── README.md
-```
+> **Note sur la substitution NewsData.io → The Guardian** : le spec d'origine prévoyait NewsData.io, dont l'usage devient payant au-delà du plan gratuit (200 req/jour). Le Guardian Open Platform offre 5 000 req/jour gratuit avec une qualité éditoriale supérieure. La justification complète est dans [`docs/architecture.md §3.1`](docs/architecture.md#31-the-guardian--différence-avec-le-spec).
 
 ## Schéma de sortie unifié
 
-Toutes les sources sont normalisées vers ce schéma JSON Lines :
+Toutes les sources sont normalisées vers le format JSON Lines suivant (validé par Pydantic dans [`src/transformation/schema.py`](src/transformation/schema.py)) :
 
 ```json
 {
-  "id": "uuid-v4",
-  "source": "fakeddit | newsdata | snopes | ...",
+  "id": "<uuid-v4>",
+  "source": "fakeddit | guardian | snopes | ...",
   "title": "Article or post title",
   "content": "Full text content",
   "image_url": "https://...",
-  "label": "fake | real",
-  "label_detail": "false | misleading | satire | mixture | ...",
+  "label": "fake | real | null",
+  "label_detail": "Mixture | Mostly True | satire | manipulated_content | ...",
   "language": "en",
   "domain": "snopes.com",
   "collected_at": "2026-05-15T00:00:00Z",
@@ -81,6 +67,46 @@ Toutes les sources sont normalisées vers ce schéma JSON Lines :
 }
 ```
 
+Décisions clés :
+
+- `label` est **nullable** : sources non labellisées (Guardian) restent utilisables via `source_credibility`.
+- `label_detail` est **libre** : préserve les nuances fact-checker (`Mixture`, `Originated as Satire`...) que le binaire détruirait.
+- `metadata.label_method` distingue les labels experts (Snopes) des labels communautaires (Fakeddit) — utile en feature engineering.
+
+## Structure du projet
+
+```
+checkit-pipeline/
+├── dags/
+│   └── checkit_pipeline_dag.py       # DAG principal : 3 extracts parallèles → transform
+├── src/
+│   ├── extraction/
+│   │   ├── fakeddit.py               # Streaming TSV multimodal
+│   │   ├── guardian.py               # Content API + pagination
+│   │   └── snopes.py                 # RSS + ClaimReview JSON-LD + BS4
+│   ├── transformation/
+│   │   ├── schema.py                 # Modèles Pydantic (Article, ArticleMetadata)
+│   │   ├── cleaner.py                # [Étape 3] dédup, drop nulls, sanitise text
+│   │   ├── normalizer.py             # [Étape 3] mapping raw → Article par source
+│   │   └── validator.py              # [Étape 3] enforce invariants, log rejets
+│   └── utils/
+│       ├── logger.py                 # Logger stdout formaté (idempotent)
+│       └── config.py                 # Chargement .env, chemins data/
+├── data/
+│   ├── raw/                          # Données brutes par source (gitignored)
+│   └── processed/                    # Dataset unifié (gitignored)
+├── docs/
+│   ├── rapport_sources.md            # Étape 1 — exploration des sources
+│   └── architecture.md               # Décisions techniques détaillées
+├── tests/                            # pytest
+├── notebooks/                        # Exploration / prototypage
+├── pyproject.toml                    # Manifeste deps
+├── uv.lock                           # Lockfile reproductible
+├── .env.example                      # Template variables d'env
+├── CLAUDE.md                         # Conventions internes (commit, code, style)
+└── README.md
+```
+
 ## Installation
 
 Prérequis : [uv](https://github.com/astral-sh/uv) (`brew install uv` ou `curl -LsSf https://astral.sh/uv/install.sh | sh`).
@@ -88,12 +114,25 @@ Prérequis : [uv](https://github.com/astral-sh/uv) (`brew install uv` ou `curl -
 ```bash
 uv sync
 cp .env.example .env
-# Renseigner GUARDIAN_API_KEY (gratuit : https://open-platform.theguardian.com/access/) et FAKEDDIT_TSV_PATH
 ```
+
+Compléter `.env` :
+- `GUARDIAN_API_KEY` — clé developer gratuite via https://open-platform.theguardian.com/access/
+- `FAKEDDIT_TSV_PATH` — chemin local ou URL du TSV multimodal Fakeddit (voir `docs/rapport_sources.md`)
 
 ## Utilisation
 
-### Lancer Airflow en local (dev)
+### Extraction isolée par source
+
+```bash
+uv run python -m src.extraction.fakeddit
+uv run python -m src.extraction.guardian
+uv run python -m src.extraction.snopes
+```
+
+Chaque commande écrit un fichier `data/raw/<source>/<source>_<timestamp>.jsonl`.
+
+### Pipeline complet via Airflow
 
 ```bash
 export AIRFLOW_HOME=$(pwd)/.airflow
@@ -101,14 +140,6 @@ uv run airflow standalone
 ```
 
 Interface : http://localhost:8080 — le DAG `checkit_pipeline` apparaît dans la liste.
-
-### Exécuter une extraction isolée
-
-```bash
-uv run python -m src.extraction.fakeddit
-uv run python -m src.extraction.guardian
-uv run python -m src.extraction.snopes
-```
 
 ### Tests & lint
 
@@ -118,44 +149,44 @@ uv run ruff check .
 uv run ruff format .
 ```
 
-## Pipeline
+## Roadmap & livrables (5 étapes)
 
-```
-┌──────────────────────────────────────────┐
-│           Extraction (parallèle)          │
-│  ┌─────────┐  ┌──────────┐  ┌─────────┐  │
-│  │newsdata │  │ fakeddit │  │ snopes  │  │
-│  └────┬────┘  └────┬─────┘  └────┬────┘  │
-└───────┼────────────┼─────────────┼───────┘
-        │            │             │
-        └────────────┼─────────────┘
-                     ▼
-          ┌──────────────────────┐
-          │   data/raw/*.jsonl   │
-          └──────────┬───────────┘
-                     ▼
-          ┌──────────────────────┐
-          │     Transformation   │
-          │  cleaner → normalizer│
-          │       → validator    │
-          └──────────┬───────────┘
-                     ▼
-          ┌──────────────────────┐
-          │ data/processed/*.jsonl│
-          └──────────────────────┘
-```
+| Étape | Livrable | Statut | Détail |
+|---|---|---|---|
+| 1 | Exploration des sources | ✅ | [`docs/rapport_sources.md`](docs/rapport_sources.md) — 6 sources évaluées, critères qualité/volume/droits |
+| 2 | Scripts d'extraction | ✅ (3/6 sources prioritaires) | `src/extraction/{fakeddit,guardian,snopes}.py` testés sur données réelles |
+| 3 | Transformation + schéma | 🚧 Schéma défini, pipeline à coder | `src/transformation/schema.py` ✅ · `cleaner`/`normalizer`/`validator` 🔲 |
+| 4 | DAG Airflow + Load PostgreSQL | 🚧 Squelette DAG en place | Tâche `load_to_db` + connexion Airflow à configurer |
+| 5 | KPIs & monitoring | 🔲 Backlog | `valid_rate`, `image_coverage`, `label_balance`, alertes email |
+
+## Décisions techniques marquantes
+
+Synthèse rapide (détails dans [`docs/architecture.md`](docs/architecture.md)) :
+
+- **uv au lieu de pip** — builds reproductibles, lockfile commité, install ~10× plus rapide
+- **Pydantic v2 strict** — `extra="forbid"` empêche la dérive silencieuse du schéma
+- **protego au lieu de `urllib.robotparser`** — la stdlib refuse Snopes à cause d'une directive non-standard (`Content-Signal:`), protego (Scrapy) gère ça correctement
+- **ClaimReview JSON-LD prioritaire** — extraction Snopes via schema.org plutôt que CSS, stable across redesigns
+- **Streaming TSV par chunks de 10k** — Fakeddit fait ~1M de lignes, le chargement complet sature un laptop standard
+- **Une tâche d'extraction par source dans le DAG** — restartabilité fine, observabilité par source
 
 ## Points de vigilance
 
-- **Droits d'usage** : LIAR et FakeNewsNet en recherche uniquement. Vérifier les CGU de NewsData.io.
-- **Rate limiting** : respecter `robots.txt` (Snopes) et `time.sleep(1)` entre requêtes scraping.
-- **Idempotence** : les DAGs doivent être rejouables — clé unique `(source, id)`.
-- **Nuances de labels** : ne pas réduire `Mixture` ou `Unproven` à un binaire `fake/real` — utiliser `label_detail`.
+- `.env` **jamais commité** — vérifié dans `.gitignore`, contient les clés API.
+- `data/raw/` et `data/processed/` **non versionnés** — datasets gros, recréables.
+- **Droits d'usage** : Fakeddit, LIAR, FakeNewsNet en recherche académique uniquement. The Guardian developer tier en non-commercial avec attribution.
+- **Scraping respectueux** : `User-Agent` identifiable, `time.sleep(1.5)` entre requêtes Snopes, `robots.txt` vérifié via protego.
+- **Nuances de labels préservées** : ne pas réduire `Mixture` ou `Unproven` à un binaire `fake/real` — utiliser `label_detail`.
 
-## Roadmap
+## Ressources
 
-- [x] **Étape 1** — Exploration des sources
-- [ ] **Étape 2** — Scripts d'extraction FAKEDDIT + NewsData.io
-- [ ] **Étape 3** — Pipeline de transformation (cleaner / normalizer / validator)
-- [ ] **Étape 4** — DAG Airflow complet + scheduling
-- [ ] **Étape 5** — Tests + monitoring + documentation finale
+- [Apache Airflow Docs](https://airflow.apache.org/docs/)
+- [The Guardian Open Platform](https://open-platform.theguardian.com/documentation/)
+- [Fakeddit Paper (Nakamura et al., 2020)](https://arxiv.org/abs/1911.03854)
+- [schema.org/ClaimReview](https://schema.org/ClaimReview)
+- [Protego (robots.txt parser de Scrapy)](https://github.com/scrapy/protego)
+- [Pydantic v2 Documentation](https://docs.pydantic.dev/latest/)
+
+---
+
+*CheckIt.AI · Data Engineering · pipeline ETL · Python · Airflow · PostgreSQL*

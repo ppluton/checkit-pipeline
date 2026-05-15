@@ -1,12 +1,41 @@
 """The Guardian Open Platform extraction.
 
-Queries the Guardian Content API for recent articles and writes raw
-records as JSON Lines. Articles missing a thumbnail are filtered out to
-preserve the text + image multimodal constraint.
+What this module does:
+    Queries the Guardian Content API for recent articles matching a
+    misinformation-related search query and writes raw responses as
+    JSON Lines to ``data/raw/guardian/``. Records missing a thumbnail
+    are filtered out to preserve the text + image multimodal
+    constraint.
 
-The Guardian provides editorial-quality journalism: collected articles
-are treated as a high-credibility "real" baseline, to be combined with
-fact-checker sources (Snopes, FakeNewsNet) for the negative class.
+Why The Guardian (and not NewsData.io as in the original spec):
+    NewsData.io's free tier is 200 requests/day and the broader
+    product is paid. For a portfolio project we needed a source that
+    is fully free, has a public free-tier API, and offers
+    editorial-grade journalism. The Guardian Open Platform fits all
+    three: a developer key delivered in seconds, 5 000 calls/day, JSON
+    responses, and articles with named bylines and editorial review.
+
+Why this source matters for CheckIt.AI:
+    Fakeddit and Snopes are skewed toward fake / dubious content (by
+    construction: they are fact-checkers or labelled fake-news
+    datasets). To train a balanced classifier we need a *high
+    credibility "real"* baseline; The Guardian fills that role.
+
+Key design choices:
+    * **Pagination loop with explicit ``max_pages``** — the Guardian
+      reports a global ``pages`` field that can reach thousands; we
+      cap the loop to avoid runaway runs and stay friendly with the
+      daily quota.
+    * **``RATE_LIMIT_SLEEP = 1.0 s``** between pages even though the
+      published limit is much higher (12 calls/s). Courtesy delays
+      cost us nothing here and demonstrate good API citizenship.
+    * **``require_image=True`` by default** — articles without a
+      thumbnail break the multimodal contract. We log them as
+      ``skipped`` so the metric remains observable.
+    * **Distinct output file per run** (timestamped) — Airflow can
+      schedule overlapping retries without overwriting prior batches.
+      Idempotency on the ``(source, url)`` key is enforced by the
+      normalizer, not here.
 
 Reference: https://open-platform.theguardian.com/documentation/
 """
@@ -81,6 +110,21 @@ def fetch(
     max_pages: int = 1,
     require_image: bool = True,
 ) -> Path:
+    """Pull Guardian articles into a timestamped JSONL under ``data/raw/guardian/``.
+
+    Args:
+        query: Guardian-flavoured search expression (boolean ``OR`` /
+            ``AND`` supported). Defaults to a misinformation-themed query.
+        from_date: ``YYYY-MM-DD`` lower bound. ``None`` lets the API
+            decide (newest first regardless of date).
+        max_pages: how many pages of ``PAGE_SIZE`` items to fetch.
+            Caps API spend per run.
+        require_image: skip articles without a ``thumbnail`` field to
+            preserve the multimodal contract.
+
+    Returns:
+        The path of the JSONL file written.
+    """
     out_dir = RAW_DIR / "guardian"
     out_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")

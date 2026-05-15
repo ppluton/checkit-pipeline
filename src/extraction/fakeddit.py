@@ -1,9 +1,34 @@
 """FAKEDDIT extraction.
 
-Streams the multimodal Fakeddit TSV (~1M rows) and writes raw records to
-``data/raw/fakeddit/`` as JSON Lines. Source is configured via
-``FAKEDDIT_TSV_PATH`` (local file or URL). Only rows with an ``image_url``
-are kept.
+What this module does:
+    Reads the *multimodal* Fakeddit TSV (~1 million Reddit posts with
+    paired images and 6-class labels) and writes raw records as JSON
+    Lines to ``data/raw/fakeddit/``. Rows missing an ``image_url`` are
+    dropped so the output stays multimodal-only.
+
+Why this source matters for CheckIt.AI:
+    Fakeddit is the project's primary training source: it is large
+    enough to train, natively multimodal, and labelled at two
+    granularities (binary real/fake + 6 sub-categories including
+    *satire*, *misleading content*, *manipulated content*). The
+    6-class label is critical: a satirical post is not the same kind
+    of misinformation as a manipulated image, and the model needs
+    that nuance to be useful in production.
+
+Key design choices:
+    * **Streaming with ``pd.read_csv(chunksize=...)``** — the file has
+      ~1 M rows and would not fit in memory if loaded fully on a
+      modest workstation. The reader yields 10k-row chunks and we
+      process them sequentially.
+    * **Raw output, no normalisation here** — this module respects the
+      ``extract → transform`` contract: it only filters, never
+      interprets. Label mapping (e.g. ``LABEL_6WAY[5] →
+      "manipulated_content"``) is exposed as constants for the
+      ``normalizer`` to reuse, not applied at extraction time.
+    * **Configurable source path** — ``FAKEDDIT_TSV_PATH`` accepts
+      either a local file path or a remote URL. ``pandas`` handles
+      both transparently, which keeps the code identical between
+      local development and a future Airflow worker pulling from S3.
 
 Reference: https://github.com/entitize/Fakeddit
 """
@@ -61,6 +86,16 @@ def _iter_records(source: str, limit: int | None) -> Iterator[dict]:
 
 
 def fetch(limit: int | None = None, output_name: str = "fakeddit.jsonl") -> Path:
+    """Stream the Fakeddit TSV to ``data/raw/fakeddit/<output_name>``.
+
+    Args:
+        limit: optional row cap, useful for smoke tests. ``None`` means
+            "read the whole TSV".
+        output_name: name of the JSONL file inside ``data/raw/fakeddit/``.
+
+    Returns:
+        The path of the JSONL file actually written.
+    """
     source = _resolve_source()
     out_dir = RAW_DIR / "fakeddit"
     out_dir.mkdir(parents=True, exist_ok=True)

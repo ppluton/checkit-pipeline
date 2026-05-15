@@ -1,19 +1,51 @@
 """Snopes fact-check extraction.
 
-Reads the Snopes RSS feed, fetches each article page, and extracts the
-fact-check verdict (True / False / Mixture / Unproven / Outdated / ...),
-the claim being reviewed, and the social image.
+What this module does:
+    Reads the Snopes RSS feed, fetches each article page, and extracts
+    the fact-check verdict (``True`` / ``False`` / ``Mixture`` /
+    ``Unproven`` / ``Outdated`` / ...), the claim being reviewed, and
+    the social image. Writes raw records as JSON Lines to
+    ``data/raw/snopes/``.
 
-Two extraction strategies are combined:
+Why this source matters for CheckIt.AI:
+    Snopes is the gold-standard fact-checker for English-language
+    content: verdicts are produced by human experts with a
+    transparent methodology, and the rating vocabulary preserves
+    nuances that a binary ``fake``/``real`` would destroy
+    (``Mixture``, ``Mostly True``, ``Originated as Satire``,
+    ``Correct Attribution``). These nuances feed our ``label_detail``
+    field and let the model learn finer-grained distinctions.
 
-1. **ClaimReview JSON-LD** — schema.org structured data embedded by
-   most fact-checkers for SEO. Stable across HTML redesigns.
-2. **CSS selectors via BeautifulSoup** — fallback when JSON-LD is
-   missing or malformed.
+Two extraction strategies are combined, in order:
+
+1. **ClaimReview JSON-LD (preferred)** — schema.org structured data
+   embedded by most fact-checkers for SEO. Stable across HTML
+   redesigns; gives us the verdict and claim verbatim. About 65 % of
+   Snopes URLs from the RSS feed expose it (the rest are narrative
+   ``/news/`` articles that are not formal fact-checks).
+2. **CSS selectors via BeautifulSoup (fallback)** — used when
+   JSON-LD is missing. Imperfect by design: narrative articles do
+   not encode a verdict, so we accept ``verdict = None`` in that case
+   and let the normalizer drop them.
+
+Why ``protego`` instead of ``urllib.robotparser``:
+    Snopes' ``robots.txt`` starts with a ``Content-Signal:``
+    directive (a non-standard extension). The standard-library
+    parser fails on that line and, by safety, denies access to every
+    user-agent — including ``Googlebot``. ``protego`` (the parser
+    used by Scrapy) handles the directive correctly and gives a
+    proper allow/deny decision per UA.
+
+Why a 1.5 s rate limit:
+    Snopes' ``robots.txt`` does not publish a ``Crawl-delay``. 1.5 s
+    is well below the documented limits of comparable fact-checkers
+    and keeps us in the "polite crawler" category without dragging
+    the run beyond a minute for 20 articles.
 
 References:
 - RSS feed: https://www.snopes.com/feed/
 - ClaimReview schema: https://schema.org/ClaimReview
+- Protego: https://github.com/scrapy/protego
 """
 
 import json
@@ -155,6 +187,21 @@ def _iter_feed_entries(limit: int) -> Iterator[dict]:
 
 
 def fetch(limit: int = 20) -> Path:
+    """Scrape ``limit`` most-recent Snopes articles into ``data/raw/snopes/``.
+
+    Args:
+        limit: cap on entries pulled from the RSS feed. The feed
+            typically exposes ~20 latest items.
+
+    Returns:
+        The path of the JSONL file written.
+
+    Notes:
+        Failures on a single article (HTTP errors, parse errors) are
+        logged but do not abort the run — the rest of the batch is
+        still produced. This matches the spec's requirement that
+        "data engineering errors should be observable, not fatal".
+    """
     out_dir = RAW_DIR / "snopes"
     out_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")

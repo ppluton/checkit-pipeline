@@ -1,3 +1,37 @@
+"""CheckIt.AI fake-news pipeline DAG.
+
+Architecture:
+    Three independent extraction tasks run in parallel, then fan into
+    a single transformation task that consumes ``data/raw/*`` and
+    produces ``data/processed/*.jsonl``::
+
+        [extract_guardian]
+        [extract_fakeddit]  ──►  [transform]
+        [extract_snopes]
+
+Why a parallel fan-in:
+    The three sources have no shared state — each writes to its own
+    ``data/raw/<source>/`` subdirectory — so there is no reason to
+    serialise them. Running them in parallel keeps total wall-clock
+    time bounded by the slowest source (currently Snopes, ~30 s for
+    20 articles with the politeness delay).
+
+Why ``schedule="@daily"``:
+    Snopes publishes ~20 fact-checks per week, the Guardian a few
+    hundred articles/day, and Fakeddit is static. A daily run matches
+    the freshness target of the spec without burning the Guardian
+    quota.
+
+Why one task per source rather than a dynamic mapping:
+    Each source has its own quirks (API key, rate limit, structure)
+    and its own retry profile (transient HTTP vs missing TSV file).
+    Splitting them gives operators precise restart and observability,
+    at the cost of three task definitions instead of one.
+
+Status: skeleton. ``_transform`` is a placeholder; the actual
+transformation pipeline is delivered in Étape 3 of the project roadmap.
+"""
+
 from datetime import datetime, timedelta
 
 from airflow import DAG
