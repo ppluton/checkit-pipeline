@@ -12,6 +12,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "feedparser>=6.0",
     "pandas>=2.2",
+    "protego>=0.6.0",
     "pydantic>=2.6",
     "python-dotenv>=1.0",
     "requests>=2.32",
