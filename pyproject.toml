@@ -12,6 +12,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "datasets>=4.8.5",
     "feedparser>=6.0",
+    "matplotlib>=3.10.9",
     "pandas>=2.2",
     "protego>=0.6.0",
     "pydantic>=2.6",

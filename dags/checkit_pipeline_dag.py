@@ -9,7 +9,7 @@ Architecture:
     to make the dataset multimodal::
 
         [extract_guardian]
-        [extract_fakeddit]   ─►  [transform] ─► [build_dataset] ─► [acquire_images]
+        [extract_fakeddit]  ─► [transform] ─► [build_dataset] ─► [acquire_images] ─► [report_kpis]
         [extract_snopes]
         [extract_liar]
 
@@ -44,6 +44,12 @@ Why ``acquire_images`` runs last (after the split):
     blocks the production of the unified dataset and split, and it can
     be retried on its own. It rewrites the split files in place,
     correcting ``has_image`` for any image that could not be fetched.
+
+Why ``report_kpis`` closes the pipeline:
+    Once the dataset is final, this task recomputes the ETL KPIs and
+    regenerates the dashboard, so every run leaves an up-to-date,
+    auditable picture of volumetry, rejection rates, image coverage and
+    split integrity.
 """
 
 from datetime import datetime, timedelta
@@ -103,6 +109,11 @@ with DAG(
 
         images.acquire_all()
 
+    def _report_kpis():
+        from src.monitoring import dashboard
+
+        dashboard.main()
+
     extract_guardian = PythonOperator(
         task_id="extract_guardian",
         python_callable=_extract_guardian,
@@ -131,10 +142,15 @@ with DAG(
         task_id="acquire_images",
         python_callable=_acquire_images,
     )
+    report_kpis = PythonOperator(
+        task_id="report_kpis",
+        python_callable=_report_kpis,
+    )
 
     (
         [extract_guardian, extract_fakeddit, extract_snopes, extract_liar]
         >> transform
         >> build_dataset
         >> acquire_images
+        >> report_kpis
     )
