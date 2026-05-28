@@ -1,10 +1,11 @@
-# Étape 3 — La transformation des données, expliquée simplement
+# De la collecte au dataset multimodal, expliqué simplement
 
 > Note de projet — 29 mai 2026
 >
-> Ce document raconte, de manière accessible, ce qui a été construit pendant
-> l'étape 3 du pipeline (la *transformation*) et **pourquoi** chaque choix a
-> été fait. Il s'adresse autant à un relecteur technique qu'à quelqu'un qui
+> Ce document raconte, de manière accessible, ce qui a été construit après la
+> collecte : la *transformation* des données brutes, leur *découpage* en jeux
+> d'entraînement, et l'*acquisition des images* — et **pourquoi** chaque choix
+> a été fait. Il s'adresse autant à un relecteur technique qu'à quelqu'un qui
 > découvre le projet. Le code dit *comment* ; ce texte dit *pourquoi* et
 > *pour quoi faire*.
 
@@ -191,43 +192,118 @@ défaut : il passe du premier coup, et on ne sait jamais s'il teste vraiment
 quelque chose. Un test écrit *avant*, qu'on a vu échouer puis réussir, prouve
 qu'il détecte réellement un problème. C'est une garantie, pas une formalité.
 
-Cette étape a produit **51 tests** qui tournent en moins d'une seconde. Ils
-documentent le comportement attendu et permettront de modifier le code plus
-tard sans crainte de tout casser.
+L'ensemble du travail décrit ici est couvert par **76 tests** qui tournent en
+moins d'une seconde. Ils documentent le comportement attendu et permettront de
+modifier le code plus tard sans crainte de tout casser.
 
-## 6. Où on en est — état du dataset au 29 mai 2026
+## 6. Le découpage train / validation / test
 
-Le pipeline tourne de bout en bout. En l'exécutant sur les données collectées :
+Une fois les données unifiées, on ne peut pas les jeter telles quelles dans un
+modèle. Il faut les **découper en trois paquets** :
+
+- **train** (entraînement, 70 %) : ce que le modèle voit pour apprendre.
+- **validation** (15 %) : pour régler les réglages sans tricher.
+- **test** (15 %) : gardé sous scellés, pour mesurer la performance finale.
+
+Deux exigences rendent ce découpage moins trivial qu'il n'y paraît.
+
+**Il doit être équilibré (stratifié).** Si, par malchance, tous les articles
+Snopes tombaient dans le test, le modèle n'en verrait jamais à l'entraînement.
+On découpe donc *à l'intérieur de chaque groupe* `(source × label)` : chaque
+paquet reçoit la même proportion de chaque source et de chaque label.
+
+**Il doit être étanche (« leakage-safe »).** Si le même texte se retrouvait à la
+fois en entraînement et en test, le modèle aurait déjà « vu les réponses » le
+jour de l'examen — son score serait gonflé et mensonger. On regroupe donc les
+records au contenu identique et on garantit qu'ils atterrissent **dans le même
+paquet**.
+
+> **Analogie.** C'est un examen : on révise sur les annales (train), on s'auto-
+> évalue sur des exercices blancs (validation), et on passe l'épreuve finale sur
+> des sujets qu'on n'a *jamais* vus (test). Laisser fuiter un sujet d'examen dans
+> les annales, c'est fausser la note.
+
+Enfin, le découpage est **déterministe** (graine aléatoire fixe) : relancer le
+pipeline produit toujours la même répartition, sinon les scores ne seraient pas
+comparables d'une exécution à l'autre.
+
+Tout cela est résumé dans une **fiche dataset** (`docs/data_card.md`) générée
+automatiquement à chaque exécution — elle ne se périme donc jamais.
+
+## 7. Rendre le dataset vraiment multimodal : les images
+
+Le projet promet du *multimodal* : texte **et** image. Or, jusqu'ici, on ne
+stockait que des *adresses* d'images (`image_url`), pas les images elles-mêmes.
+Problème : ces adresses peuvent disparaître du jour au lendemain. Une dernière
+étape télécharge donc réellement chaque image et l'archive localement
+(`data/images/<id>`), pour que le dataset ne dépende plus d'Internet.
+
+Deux décisions de bon sens encadrent cette étape :
+
+- **Que faire quand une image refuse de se télécharger** (lien mort, délai
+  dépassé, fichier qui n'est pas une image) ? On **garde quand même le record**,
+  en le marquant « sans image » (`has_image = false`). Le texte reste
+  exploitable ; on ne jette rien.
+- **L'étape est mise en dernier**, après le découpage, car c'est la plus lente
+  (une requête réseau par record) et la plus susceptible d'échouer. Ainsi, un
+  problème de téléchargement ne bloque jamais la production du dataset, et on
+  peut relancer la seule acquisition d'images sans tout recommencer.
+
+Résultat sur la collecte réelle : **58 images téléchargées** (Guardian et
+Snopes), **5 records basculés en texte seul** (les liens Fakeddit de
+l'échantillon de test étaient factices et renvoyaient une erreur 404), et 100
+records LIAR ignorés (ils n'ont pas d'image par nature). La fiche dataset est
+ensuite régénérée pour refléter le nombre **réel** d'images, et non le nombre
+optimiste de records qui *annonçaient* une image.
+
+## 8. Où on en est — état du dataset au 29 mai 2026
+
+Le pipeline tourne de bout en bout :
+`extraction → transformation → découpage → acquisition des images`.
 
 | Source | Lignes brutes | Lignes valides | Commentaire |
 |---|---|---|---|
-| Fakeddit | 5 | 5 | échantillon de test |
-| Guardian | 45 | 45 | actualité neutre, label `real` |
+| Fakeddit | 5 | 5 | échantillon de test (images factices) |
+| Guardian | 45 | 45 | actualité neutre, label `real`, images téléchargées |
 | Snopes | 20 | 13 | 7 articles narratifs sans verdict, écartés |
-| LIAR | 100 | 100 | déclarations politiques |
+| LIAR | 100 | 100 | déclarations politiques (texte seul) |
 | **Total** | | **163** | |
 
-Répartition des labels : `real` = 66, `fake` = 35, `null` (nuancé) = 62.
+- **Labels** : `real` = 66, `fake` = 35, `null` (nuancé) = 62.
+- **Découpage** : 114 train / 24 validation / 25 test, stratifié, sans fuite.
+- **Images** : 58 réellement téléchargées, 105 records en texte seul.
 
 Les 7 articles Snopes écartés ne sont pas un bug : ce sont des articles
-narratifs (rubrique « news ») qui ne contiennent pas de verdict formel. Les
-écarter est le comportement voulu.
+narratifs (rubrique « news ») sans verdict formel. Les écarter est voulu.
 
-## 7. Ce qui reste à faire (en toute honnêteté)
+## 9. Ce qui reste au backlog : Fakeddit à l'échelle
 
-Le pipeline est solide, mais le jeu de données n'est pas encore complet. Les
-chantiers identifiés, par ordre d'impact :
+Un seul grand chantier reste ouvert, et il est conservé en backlog **par choix
+assumé** : le passage de **Fakeddit à l'échelle**.
 
-- **Acquisition réelle des images.** Aujourd'hui on stocke des *adresses*
-  d'images, pas les images elles-mêmes. Or ces adresses expirent. Pour un
-  projet réellement *multimodal* (texte + image), il faudra télécharger et
-  archiver les images dès la collecte.
-- **Passage de Fakeddit à l'échelle.** Avec seulement 5 lignes, Fakeddit est en
-  mode « test ». La source contient près d'un million de posts ; le pipeline
-  sait déjà les traiter en flux, il reste à le lancer sur un vrai volume.
-- **Statistiques, découpage et fiche dataset.** Analyser la distribution,
-  découper en jeux d'entraînement / validation / test de façon équilibrée par
-  source, et documenter le tout.
+**De quoi s'agit-il ?** Fakeddit est censé être la source d'entraînement
+*principale* du projet : près d'un million de posts Reddit nativement
+multimodaux (texte + image) avec des labels fins. C'est elle qui doit donner au
+modèle le volume nécessaire pour apprendre.
 
-Aucun de ces points n'est bloquant : la fondation propre construite à l'étape 3
-est précisément ce qui permettra de les aborder sereinement.
+**Pourquoi seulement 5 lignes aujourd'hui ?** Les 5 records Fakeddit actuels
+sont un **échantillon factice** servant à valider le pipeline (d'où les liens
+d'images en erreur 404). Le code sait déjà lire le vrai fichier *en flux*
+(`chunksize`), justement pour ne pas saturer la mémoire avec un million de
+lignes — cette partie est prête.
+
+**Pourquoi ce n'est pas encore fait ?** Le blocage n'est pas du code, c'est une
+**dépendance de données** : il faut d'abord récupérer le vrai fichier TSV de
+Fakeddit (plusieurs gigaoctets), le rendre accessible au pipeline via la
+variable `FAKEDDIT_TSV_PATH`, puis lancer une collecte sur un volume réel. C'est
+une opération lourde (téléchargement, espace disque, temps de traitement et
+d'acquisition d'images à grande échelle) qui mérite d'être planifiée à part
+plutôt que bâclée.
+
+**Pourquoi ce n'est pas bloquant.** Tout le reste du pipeline — normalisation,
+découpage stratifié, acquisition d'images — est **agnostique au volume**. Le
+jour où le vrai Fakeddit est branché, ces étapes le traiteront sans aucune
+modification. La fondation est prête ; il ne manque que le carburant.
+
+Les deux sources encore non démarrées (FakeNewsNet, NewsCLIPpings) restent par
+ailleurs dans le backlog d'exploration, comme prévu au cadrage initial.
