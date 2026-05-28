@@ -22,8 +22,8 @@
 
 | Label | Records |
 | --- | --- |
-| real | 66 |
 | fake | 35 |
+| real | 66 |
 | null | 62 |
 
 Le label `null` n'est pas une absence d'information : il marque les verdicts
@@ -32,8 +32,8 @@ trompeur. La nuance d'origine est conservée dans `label_detail`.
 
 ## Couverture image (multimodal)
 
-- Avec image : 63
-- Sans image (texte seul) : 100
+- Avec image : 58
+- Sans image (texte seul) : 105
 
 ## Longueur de contenu (caractères)
 
