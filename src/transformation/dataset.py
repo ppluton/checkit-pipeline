@@ -192,6 +192,38 @@ apparaître à la fois en entraînement et en test.
 """
 
 
+CARD_PATH = PROJECT_ROOT / "docs" / "data_card.md"
+
+
+def refresh_data_card() -> dict:
+    """Regenerate the data card from the current split files on disk.
+
+    Reading back from the splits (rather than the unified batch) means
+    the card always reflects post-split, post-image-acquisition reality
+    (e.g. ``has_image`` corrected for images that failed to download).
+    """
+    breakdown: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    combined: list[dict] = []
+    for split in SPLIT_NAMES:
+        path = PROCESSED_DIR / f"{split}.jsonl"
+        if not path.exists():
+            continue
+        records = read_jsonl(path)
+        combined.extend(records)
+        for record in records:
+            breakdown[split][record["source"]] += 1
+
+    stats = compute_stats(combined)
+    card = render_data_card(
+        stats,
+        {s: dict(breakdown[s]) for s in SPLIT_NAMES},
+        generated_on=datetime.now(UTC).date().isoformat(),
+    )
+    CARD_PATH.write_text(card, encoding="utf-8")
+    logger.info("Wrote data card to %s", CARD_PATH)
+    return stats
+
+
 def build_dataset(seed: int = DEFAULT_SEED) -> dict:
     """Read the latest unified file, write splits, and refresh the data card.
 
@@ -206,13 +238,7 @@ def build_dataset(seed: int = DEFAULT_SEED) -> dict:
     records = read_jsonl(latest)
     logger.info("Building dataset from %s (%d records)", latest.name, len(records))
 
-    stats = compute_stats(records)
     tagged = assign_splits(records, seed=seed)
-
-    breakdown: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    for record in tagged:
-        breakdown[record["split"]][record["source"]] += 1
-
     for split in SPLIT_NAMES:
         lines = (
             json.dumps({k: v for k, v in r.items() if k != "split"}, ensure_ascii=False)
@@ -222,15 +248,7 @@ def build_dataset(seed: int = DEFAULT_SEED) -> dict:
         _, count = write_processed(lines, f"{split}.jsonl")
         logger.info("Wrote %d records to %s.jsonl", count, split)
 
-    card = render_data_card(
-        stats,
-        {s: dict(breakdown[s]) for s in SPLIT_NAMES},
-        generated_on=datetime.now(UTC).date().isoformat(),
-    )
-    card_path = PROJECT_ROOT / "docs" / "data_card.md"
-    card_path.write_text(card, encoding="utf-8")
-    logger.info("Wrote data card to %s", card_path)
-    return stats
+    return refresh_data_card()
 
 
 if __name__ == "__main__":
