@@ -33,8 +33,8 @@ Key design choices:
 Reference: https://github.com/entitize/Fakeddit
 """
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 import pandas as pd
 

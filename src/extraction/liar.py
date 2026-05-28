@@ -41,8 +41,8 @@ Reference:
     - HF dataset: https://huggingface.co/datasets/ucsbnlp/liar
 """
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 import pandas as pd
 
@@ -52,8 +52,7 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 PARQUET_BASE = (
-    "https://huggingface.co/datasets/ucsbnlp/liar/resolve/"
-    "refs%2Fconvert%2Fparquet/default"
+    "https://huggingface.co/datasets/ucsbnlp/liar/resolve/refs%2Fconvert%2Fparquet/default"
 )
 SPLITS = ("train", "validation", "test")
 

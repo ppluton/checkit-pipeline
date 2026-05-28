@@ -50,10 +50,10 @@ References:
 
 import json
 import time
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterator
 from urllib.parse import urlparse
 
 import feedparser
@@ -137,9 +137,7 @@ def _parse_article(html: str, url: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     claim_review = _extract_claim_review(soup)
 
-    title = _meta_content(soup, "og:title") or (
-        soup.h1.get_text(strip=True) if soup.h1 else ""
-    )
+    title = _meta_content(soup, "og:title") or (soup.h1.get_text(strip=True) if soup.h1 else "")
     image_url = _meta_content(soup, "og:image")
     description = _meta_content(soup, "description", attr="name")
 
@@ -167,7 +165,7 @@ def _parse_article(html: str, url: str) -> dict:
         "rating_value": rating_value,
         "image_url": image_url,
         "description": description,
-        "scraped_at": datetime.now(timezone.utc).isoformat(),
+        "scraped_at": datetime.now(UTC).isoformat(),
         "extraction_method": "claim_review_jsonld" if claim_review else "css_fallback",
     }
 
