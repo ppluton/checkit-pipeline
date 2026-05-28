@@ -12,17 +12,42 @@ Why this lives here:
 
 import json
 from collections.abc import Iterable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from src.utils.config import RAW_DIR
+from src.utils.config import PROCESSED_DIR, RAW_DIR
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 def _timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    """Load a JSON Lines file into a list of dicts."""
+    with path.open(encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def latest_raw_file(source: str) -> Path | None:
+    """Return the most recently written ``data/raw/<source>/*.jsonl`` file."""
+    candidates = sorted((RAW_DIR / source).glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+    return candidates[-1] if candidates else None
+
+
+def write_processed(lines: Iterable[str], filename: str | None = None) -> tuple[Path, int]:
+    """Write pre-serialised JSONL ``lines`` to ``data/processed/``."""
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = PROCESSED_DIR / (filename or f"checkit_{_timestamp()}.jsonl")
+    written = 0
+    with out_path.open("w", encoding="utf-8") as f:
+        for line in lines:
+            f.write(line + "\n")
+            written += 1
+    logger.info("Done: %d records to %s", written, out_path)
+    return out_path, written
 
 
 def write_jsonl(

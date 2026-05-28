@@ -57,22 +57,28 @@ with DAG(
 
     def _extract_guardian():
         from src.extraction import guardian
+
         guardian.fetch()
 
     def _extract_fakeddit():
         from src.extraction import fakeddit
+
         fakeddit.fetch()
 
     def _extract_snopes():
         from src.extraction import snopes
+
         snopes.fetch()
 
     def _extract_liar():
         from src.extraction import liar
+
         liar.fetch()
 
     def _transform():
-        pass
+        from src.transformation import pipeline
+
+        pipeline.transform()
 
     extract_guardian = PythonOperator(
         task_id="extract_guardian",
