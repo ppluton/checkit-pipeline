@@ -1,12 +1,14 @@
 """CheckIt.AI fake-news pipeline DAG.
 
 Architecture:
-    Four independent extraction tasks run in parallel, then fan into
-    a single transformation task that consumes ``data/raw/*`` and
-    produces ``data/processed/*.jsonl``::
+    Four independent extraction tasks run in parallel, fan into a
+    single transformation task that consumes ``data/raw/*`` and
+    produces the unified ``data/processed/checkit_*.jsonl``, then a
+    final task assembles the train/validation/test split and the data
+    card::
 
         [extract_guardian]
-        [extract_fakeddit]   ──►  [transform]
+        [extract_fakeddit]   ──►  [transform]  ──►  [build_dataset]
         [extract_snopes]
         [extract_liar]
 
@@ -29,8 +31,11 @@ Why one task per source rather than a dynamic mapping:
     Splitting them gives operators precise restart and observability,
     at the cost of three task definitions instead of one.
 
-Status: skeleton. ``_transform`` is a placeholder; the actual
-transformation pipeline is delivered in Étape 3 of the project roadmap.
+Why ``build_dataset`` is a separate task after ``transform``:
+    Splitting and statistics operate on the *whole* unified dataset,
+    so they must run once after every source has been normalised. As a
+    distinct task they can be re-run (e.g. to reshuffle with a new
+    seed) without repeating extraction or transformation.
 """
 
 from datetime import datetime, timedelta
@@ -80,6 +85,11 @@ with DAG(
 
         pipeline.transform()
 
+    def _build_dataset():
+        from src.transformation import dataset
+
+        dataset.build_dataset()
+
     extract_guardian = PythonOperator(
         task_id="extract_guardian",
         python_callable=_extract_guardian,
@@ -100,5 +110,13 @@ with DAG(
         task_id="transform",
         python_callable=_transform,
     )
+    build_dataset = PythonOperator(
+        task_id="build_dataset",
+        python_callable=_build_dataset,
+    )
 
-    [extract_guardian, extract_fakeddit, extract_snopes, extract_liar] >> transform
+    (
+        [extract_guardian, extract_fakeddit, extract_snopes, extract_liar]
+        >> transform
+        >> build_dataset
+    )
