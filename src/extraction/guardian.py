@@ -1,11 +1,10 @@
 """The Guardian Open Platform extraction.
 
 What this module does:
-    Queries the Guardian Content API for recent articles matching a
-    misinformation-related search query and writes raw responses as
-    JSON Lines to ``data/raw/guardian/``. Records missing a thumbnail
-    are filtered out to preserve the text + image multimodal
-    constraint.
+    Pulls recent Guardian articles from a set of fact-based sections
+    and writes raw responses as JSON Lines to ``data/raw/guardian/``.
+    Non-article content (liveblogs, crosswords, galleries) and records
+    missing a thumbnail are filtered out.
 
 Why The Guardian (and not NewsData.io as in the original spec):
     NewsData.io's free tier is 200 requests/day and the broader
@@ -19,9 +18,25 @@ Why this source matters for CheckIt.AI:
     Fakeddit and Snopes are skewed toward fake / dubious content (by
     construction: they are fact-checkers or labelled fake-news
     datasets). To train a balanced classifier we need a *high
-    credibility "real"* baseline; The Guardian fills that role.
+    credibility "real"* baseline; The Guardian fills that role and is
+    labelled ``real`` by the normalizer.
+
+Why no search query (and why this matters):
+    An earlier version searched for ``"misinformation OR fact-check
+    OR fake news"``. That introduced a label-leakage trap: it returned
+    articles *about* misinformation, saturated with words like
+    "hoax" / "false claim", yet labelled ``real``. A classifier would
+    learn the topic vocabulary instead of veracity. We therefore drop
+    the query entirely and sample neutral general news across
+    fact-based sections, so the ``real`` label reflects credible
+    reporting rather than a misinformation theme.
 
 Key design choices:
+    * **Section filter, no ``q``** — ``SECTIONS`` selects text-rich,
+      fact-based desks (world, science, technology, business,
+      environment) without thematic bias.
+    * **``type == "article"`` only** — liveblogs and crosswords carry
+      noisy or non-prose bodies; we keep only editorial articles.
     * **Pagination loop with explicit ``max_pages``** — the Guardian
       reports a global ``pages`` field that can reach thousands; we
       cap the loop to avoid runaway runs and stay friendly with the
@@ -41,8 +56,8 @@ Reference: https://open-platform.theguardian.com/documentation/
 """
 
 import time
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 import requests
 
@@ -53,14 +68,15 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 BASE_URL = "https://content.guardianapis.com/search"
-DEFAULT_QUERY = "misinformation OR disinformation OR fact-check OR fake news"
+SECTIONS = "world|science|technology|business|environment"
 DEFAULT_FIELDS = "headline,trailText,body,thumbnail,byline,publication,lastModified"
+ALLOWED_TYPES = {"article"}
 PAGE_SIZE = 50
 REQUEST_TIMEOUT = 30
 RATE_LIMIT_SLEEP = 1.0
 
 
-def _fetch_page(query: str, page: int, from_date: str | None) -> dict:
+def _fetch_page(page: int, from_date: str | None) -> dict:
     if not GUARDIAN_API_KEY:
         raise RuntimeError(
             "GUARDIAN_API_KEY is not set. Register a free key at "
@@ -68,7 +84,7 @@ def _fetch_page(query: str, page: int, from_date: str | None) -> dict:
         )
 
     params = {
-        "q": query,
+        "section": SECTIONS,
         "api-key": GUARDIAN_API_KEY,
         "page": page,
         "page-size": PAGE_SIZE,
@@ -83,28 +99,31 @@ def _fetch_page(query: str, page: int, from_date: str | None) -> dict:
     return response.json()["response"]
 
 
-def _iter_articles(
-    query: str,
-    from_date: str | None,
-    max_pages: int,
-) -> Iterator[dict]:
+def _iter_articles(from_date: str | None, max_pages: int) -> Iterator[dict]:
     for page in range(1, max_pages + 1):
-        body = _fetch_page(query, page, from_date)
+        body = _fetch_page(page, from_date)
         results = body.get("results", [])
         if not results:
             return
 
-        logger.info("Page %d/%d: %d results (total=%d)", page, body["pages"], len(results), body["total"])
-        for article in results:
-            yield article
+        logger.info(
+            "Page %d/%d: %d results (total=%d)", page, body["pages"], len(results), body["total"]
+        )
+        yield from results
 
         if page >= body["pages"]:
             return
         time.sleep(RATE_LIMIT_SLEEP)
 
 
+def _is_wanted(article: dict, require_image: bool) -> bool:
+    """Keep only editorial articles that satisfy the multimodal contract."""
+    if article.get("type") not in ALLOWED_TYPES:
+        return False
+    return not require_image or bool(article.get("fields", {}).get("thumbnail"))
+
+
 def fetch(
-    query: str = DEFAULT_QUERY,
     from_date: str | None = None,
     max_pages: int = 1,
     require_image: bool = True,
@@ -112,8 +131,6 @@ def fetch(
     """Pull Guardian articles into a timestamped JSONL under ``data/raw/guardian/``.
 
     Args:
-        query: Guardian-flavoured search expression (boolean ``OR`` /
-            ``AND`` supported). Defaults to a misinformation-themed query.
         from_date: ``YYYY-MM-DD`` lower bound. ``None`` lets the API
             decide (newest first regardless of date).
         max_pages: how many pages of ``PAGE_SIZE`` items to fetch.
@@ -128,15 +145,15 @@ def fetch(
 
     def _iter_with_filter() -> Iterator[dict]:
         nonlocal skipped
-        for article in _iter_articles(query, from_date, max_pages):
-            if require_image and not article.get("fields", {}).get("thumbnail"):
+        for article in _iter_articles(from_date, max_pages):
+            if not _is_wanted(article, require_image):
                 skipped += 1
                 continue
             yield article
 
     out_path, _ = write_jsonl(_iter_with_filter(), "guardian")
     if skipped:
-        logger.info("Skipped %d articles without thumbnail", skipped)
+        logger.info("Skipped %d non-article or imageless results", skipped)
     return out_path
 
 
