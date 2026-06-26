@@ -24,7 +24,8 @@ data/images/
 logs/
 *.log
 
-# Airflow
+# Airflow (local runtime home: db, cfg, logs, generated passwords)
+.airflow/
 airflow.db
 airflow.cfg
 airflow-webserver.pid
