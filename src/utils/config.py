@@ -27,7 +27,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
 
 GUARDIAN_API_KEY = os.getenv("GUARDIAN_API_KEY")
-FAKEDDIT_TSV_PATH = os.getenv("FAKEDDIT_TSV_PATH")
+FAKEDDIT_TSV_PATH = os.getenv("FAKEDDIT_TSV_PATH") or str(
+    PROJECT_ROOT / "data" / "samples" / "fakeddit_multimodal_sample.tsv"
+)
+
+# Postgres load target (the ``L`` of the ETL). Defaults match the bundled
+# docker-compose Postgres and its least-privilege ``checkit_app`` role; set
+# ``CHECKIT_DB_URL`` directly to point at another instance (e.g. Neon).
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5433")
+CHECKIT_DB = os.getenv("CHECKIT_DB", "checkit")
+CHECKIT_APP_USER = os.getenv("CHECKIT_APP_USER", "checkit_app")
+CHECKIT_APP_PASSWORD = os.getenv("CHECKIT_APP_PASSWORD", "checkit_app")
+CHECKIT_DB_URL = os.getenv("CHECKIT_DB_URL") or (
+    f"postgresql+psycopg2://{CHECKIT_APP_USER}:{CHECKIT_APP_PASSWORD}"
+    f"@{POSTGRES_HOST}:{POSTGRES_PORT}/{CHECKIT_DB}"
+)
 
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"

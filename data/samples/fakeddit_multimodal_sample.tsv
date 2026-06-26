@@ -1,0 +1,6 @@
+id	author	subreddit	domain	clean_title	title	image_url	2_way_label	3_way_label	6_way_label	score	num_comments	upvote_ratio	hasImage	created_utc
+d8a1f0	news_bot	worldnews	picsum.photos	Local council approves new bridge after decade of debate	Local council approves new bridge after decade of debate	https://picsum.photos/seed/fkd1/640/480	0	0	0	1820	143	0.94	True	1531468800
+b3c772	satire_daily	TheOnion	picsum.photos	Nation demands to know who keeps electing these clowns	Nation demands to know who keeps electing these clowns	https://picsum.photos/seed/fkd2/640/480	1	1	1	5421	612	0.88	True	1532678400
+f19ad4	viral_share	conspiracy	picsum.photos	Leaked photo proves the moon landing was filmed in a desert	Leaked photo proves the moon landing was filmed in a desert	https://picsum.photos/seed/fkd3/640/480	1	2	2	302	489	0.41	True	1533888000
+a7e210	editshop	photoshopbattles	picsum.photos	Edited image shows politician shaking hands with a dinosaur	Edited image shows politician shaking hands with a dinosaur	https://picsum.photos/seed/fkd4/640/480	1	2	5	777	58	0.73	True	1535097600
+c5b933	science_feed	science	picsum.photos	Researchers publish peer-reviewed study on coral recovery	Researchers publish peer-reviewed study on coral recovery	https://picsum.photos/seed/fkd5/640/480	0	0	0	2640	97	0.96	True	1536307200

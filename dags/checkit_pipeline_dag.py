@@ -9,9 +9,9 @@ Architecture:
     to make the dataset multimodal::
 
         [extract_guardian]
-        [extract_fakeddit]  ─► [transform] ─► [build_dataset] ─► [acquire_images] ─► [report_kpis]
-        [extract_snopes]
-        [extract_liar]
+        [extract_fakeddit]  ─► [transform] ─► [build_dataset] ─► [acquire_images]
+        [extract_snopes]                                              │
+        [extract_liar]                          [load_to_postgres] ◄──┘ ─► [report_kpis]
 
 Why a parallel fan-in:
     The three sources have no shared state — each writes to its own
@@ -45,17 +45,36 @@ Why ``acquire_images`` runs last (after the split):
     be retried on its own. It rewrites the split files in place,
     correcting ``has_image`` for any image that could not be fetched.
 
+Why ``load_to_postgres`` after ``acquire_images``:
+    The "L" of ETL: the finalised split files (with ``has_image``
+    corrected) are loaded into Postgres as a full refresh inside one
+    transaction, through a least-privilege role. It runs after image
+    acquisition so the loaded rows reflect the multimodal-corrected
+    dataset, and before ``report_kpis`` so a run ends with both the
+    database and the dashboard in sync.
+
 Why ``report_kpis`` closes the pipeline:
     Once the dataset is final, this task recomputes the ETL KPIs and
     regenerates the dashboard, so every run leaves an up-to-date,
     auditable picture of volumetry, rejection rates, image coverage and
     split integrity.
+
+Why ``max_active_runs=1``:
+    Every task writes to shared on-disk artefacts (``data/raw``,
+    ``data/processed``, ``data/images``). Two concurrent runs would
+    clobber each other's files. Serialising runs keeps the dataset
+    consistent and makes a manual trigger safe even while a scheduled
+    run exists.
 """
 
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 default_args = {
     "owner": "checkit",
@@ -71,6 +90,7 @@ with DAG(
     schedule="@daily",
     start_date=datetime(2026, 1, 1),
     catchup=False,
+    max_active_runs=1,
     tags=["checkit", "etl"],
 ) as dag:
 
@@ -92,7 +112,7 @@ with DAG(
     def _extract_liar():
         from src.extraction import liar
 
-        liar.fetch()
+        liar.fetch(limit=100)
 
     def _transform():
         from src.transformation import pipeline
@@ -108,6 +128,11 @@ with DAG(
         from src.transformation import images
 
         images.acquire_all()
+
+    def _load_to_postgres():
+        from src.transformation import load
+
+        load.load_splits()
 
     def _report_kpis():
         from src.monitoring import dashboard
@@ -142,6 +167,10 @@ with DAG(
         task_id="acquire_images",
         python_callable=_acquire_images,
     )
+    load_to_postgres = PythonOperator(
+        task_id="load_to_postgres",
+        python_callable=_load_to_postgres,
+    )
     report_kpis = PythonOperator(
         task_id="report_kpis",
         python_callable=_report_kpis,
@@ -152,5 +181,6 @@ with DAG(
         >> transform
         >> build_dataset
         >> acquire_images
+        >> load_to_postgres
         >> report_kpis
     )
