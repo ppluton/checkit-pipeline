@@ -69,6 +69,8 @@ flowchart LR
     D --> CARD[("docs/data_card.md")]
     SP --> IMG["acquire_images<br/>téléchargement"]
     IMG --> STORE[("data/images/&lt;id&gt;")]
+    IMG --> LOAD["load_to_postgres<br/>full refresh"]
+    LOAD --> DB[("PostgreSQL<br/>checkit.articles")]
 ```
 
 Le tout est orchestré par **Apache Airflow** (`dags/checkit_pipeline_dag.py`) :
@@ -76,14 +78,18 @@ Le tout est orchestré par **Apache Airflow** (`dags/checkit_pipeline_dag.py`) :
 ```
 [extract_guardian]
 [extract_fakeddit]  ─►  [transform] ─► [build_dataset] ─► [acquire_images]
-[extract_snopes]
-[extract_liar]
+[extract_snopes]                                              │
+[extract_liar]                    [load_to_postgres] ◄────────┘ ─► [report_kpis]
 ```
 
-- Les 4 extractions tournent **en parallèle** (aucun état partagé).
-- `acquire_images` est volontairement **en dernier** : c'est l'étape la plus
+- Les 4 extractions tournent **en parallèle** (aucun état partagé). Le backend
+  Airflow est **Postgres** (et non SQLite), ce qui supporte cette concurrence
+  sans contention.
+- `acquire_images` est volontairement **avant le load** : c'est l'étape la plus
   lente et la plus faillible ; un échec réseau n'y bloque jamais la production
-  du dataset.
+  du dataset, et la base reçoit le dataset avec `has_image` déjà corrigé.
+- `load_to_postgres` charge le dataset final en base (le « L » de l'ETL) via un
+  rôle à privilèges minimaux, en *full refresh* idempotent.
 
 ---
 
@@ -158,7 +164,7 @@ sont forcés dans le même paquet, donc aucun texte ne fuit du train vers le tes
 
 ## 6. Qualité et reproductibilité
 
-- **Tests** : 76 tests (`uv run pytest`), TDD systématique sur toute la logique
+- **Tests** : 93 tests (`uv run pytest`), TDD systématique sur toute la logique
   métier (nettoyage, mapping, validation, split, acquisition).
 - **Lint / format** : `ruff` (zéro avertissement).
 - **Reproductibilité** : dépendances figées par `uv.lock` ; split déterministe
@@ -177,7 +183,8 @@ sont forcés dans le même paquet, donc aucun texte ne fuit du train vers le tes
 | Pipeline de transformation reproductible | `src/transformation/{cleaner,normalizer,validator,pipeline,dataset,images}.py` | Fait |
 | Schéma de données finalisé (Mermaid) | Section 4 ci-dessus + `src/transformation/schema.py` | Fait |
 | Flux ETL (Airflow) | `dags/checkit_pipeline_dag.py` | Fait |
-| Tableau de bord KPI de l'ETL | `src/monitoring/` + `docs/etl_dashboard.png` + `docs/etl_kpi_report.md` | Fait |
+| Chargement en base (Load SQL) | `load_to_postgres` → PostgreSQL (`docker-compose.yml`), rôle à privilèges minimaux | Fait |
+| Tableau de bord KPI de l'ETL | `src/monitoring/` : figure PNG + rapport MD + app **Streamlit interactive** | Fait |
 | Plan de monitoring | `docs/monitoring.md` | Fait |
 
 ---
@@ -189,7 +196,7 @@ des données multimodales prêtes à entraîner un détecteur de fake news.
 
 **Étape 0 — Le projet est sain (30 s)**
 ```bash
-uv run pytest -q        # 76 tests verts
+uv run pytest -q        # 93 tests verts
 uv run ruff check .     # lint propre
 ```
 
@@ -204,7 +211,7 @@ de label.
 **Étape 2 — Transformation vers le schéma unifié (1 min)**
 ```bash
 uv run python -m src.transformation.pipeline
-# 4 sources -> data/processed/checkit_*.jsonl (163 records)
+# 4 sources -> data/processed/checkit_*.jsonl (~163 records)
 ```
 Montrer une ligne Snopes : `label = null`, `label_detail = "Originated as
 Satire"` — la nuance est préservée.
@@ -219,29 +226,38 @@ Ouvrir `docs/data_card.md` : distributions, découpage 114/24/25, méthodologie.
 **Étape 4 — Multimodal : téléchargement réel des images (1 min)**
 ```bash
 uv run python -m src.transformation.images
-# 58 images téléchargées, 5 basculées en texte seul (liens morts)
+# 63 images téléchargées (un lien mort éventuel bascule en texte seul)
 ls data/images | head
 ```
 Commentaire : le dataset ne dépend plus d'URLs qui expirent.
 
 **Étape 5 — Tableau de bord KPI (1 min)**
 ```bash
-uv run python -m src.monitoring.dashboard
-# régénère docs/etl_dashboard.png + docs/etl_kpi_report.md
+uv run python -m src.monitoring.dashboard          # figure PNG + rapport MD
+uv run streamlit run src/monitoring/streamlit_app.py  # tableau de bord interactif
 ```
-Ouvrir le dashboard : volumétrie brut/valides par source, taux de rejet,
-couverture image réelle (36 %), découpage et fuites (0). Enchaîner sur le plan
-de monitoring (`docs/monitoring.md`) : seuils d'alerte, dérive de schéma,
-gestion des échecs et reprise.
+Ouvrir le tableau de bord interactif (Streamlit) : métriques clés, filtre par
+source sur la volumétrie brut/valides, taux de rejet, couverture image réelle
+(39 %), découpage et fuites (0), volet sur les nuances de labels. Enchaîner sur
+le plan de monitoring (`docs/monitoring.md`) : seuils d'alerte, dérive de
+schéma, gestion des échecs et reprise.
 
 **Étape 6 — Orchestration Airflow (2 min)**
 ```bash
+docker compose up -d   # Postgres : backend Airflow + cible du load
 export AIRFLOW_HOME=$(pwd)/.airflow
+export AIRFLOW__CORE__DAGS_FOLDER=$(pwd)/dags
+export AIRFLOW__CORE__LOAD_EXAMPLES=False
+export AIRFLOW__CORE__EXECUTOR=LocalExecutor
+export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@localhost:5433/airflow
 uv run airflow standalone
 ```
 Montrer le DAG `checkit_pipeline` : graphe `extract ×4 → transform →
-build_dataset → acquire_images → report_kpis`, déclenchement, logs,
-parallélisme des extractions, relances automatiques.
+build_dataset → acquire_images → load_to_postgres → report_kpis`, déclenchement,
+logs, parallélisme des extractions, relances automatiques. Le backend Postgres
+permet aux 4 extractions parallèles de tourner sans contention SQLite. Montrer
+ensuite la table peuplée : `docker exec checkit-postgres psql -U airflow -d
+checkit -c "select source, count(*) from checkit.articles group by source;"`.
 
 ---
 
@@ -252,21 +268,23 @@ Mesurables dès aujourd'hui sur le dataset produit :
 | KPI | Valeur actuelle | Lecture |
 |---|---|---|
 | Volume unifié | 163 records | sortie de la transformation |
-| Taux de validation Snopes | 13/20 (65 %) | rejets attendus (articles sans verdict) |
-| Couverture image réelle | 58 / 163 (36 %) | multimodal effectif après téléchargement |
-| Équilibre des labels | real 66 / fake 35 / null 62 | nuance préservée |
+| Taux de validation Snopes | 14/20 (70 %) | rejets attendus (articles sans verdict) |
+| Couverture image réelle | 63 / 163 (39 %) | multimodal effectif après téléchargement |
+| Équilibre des labels | real 68 / fake 32 / null 63 | nuance préservée |
 | Étanchéité du split | 0 fuite inter-split | vérifié |
-| Couverture de tests | 76 tests verts | qualité du code |
+| Couverture de tests | 93 tests verts | qualité du code |
 
-Ces indicateurs constituent la base du **tableau de bord KPI** à formaliser.
+Ces indicateurs alimentent le **tableau de bord KPI** : figure PNG reproductible
+pour le rapport et application Streamlit interactive pour l'exploration.
 
 ---
 
 ## 10. Limites assumées et backlog
 
-- **Fakeddit à l'échelle** : l'échantillon actuel (5 lignes) est factice ; le
-  pipeline sait déjà streamer le vrai fichier (~1 M lignes), reste à régler la
-  dépendance de données (`FAKEDDIT_TSV_PATH`). Non bloquant : le reste du
+- **Fakeddit à l'échelle** : un échantillon multimodal (5 lignes) est embarqué
+  dans le dépôt (`data/samples/`) pour que le pipeline tourne de bout en bout
+  sans dépendance externe ; le streaming du vrai fichier (~1 M lignes) ne
+  demande que de pointer `FAKEDDIT_TSV_PATH` dessus. Non bloquant : le reste du
   pipeline est agnostique au volume.
 - **FakeNewsNet / NewsCLIPpings** : sources d'extension restées au backlog
   d'exploration.

@@ -45,8 +45,10 @@ articles narratifs sans verdict sont écartés volontairement. Le seuil doit don
   d'image est tracé avec sa raison — jamais d'échec silencieux.
 - **Interface Airflow** : statut des tâches, durées, logs par exécution,
   historique des succès/échecs, relances.
-- **Tableau de bord KPI** : régénéré à chaque run par la tâche `report_kpis`
-  (`docs/etl_dashboard.png` + `docs/etl_kpi_report.md`).
+- **Tableau de bord KPI** : figure PNG + rapport Markdown régénérés à chaque run
+  par la tâche `report_kpis` (`docs/etl_dashboard.png` + `docs/etl_kpi_report.md`),
+  et application **Streamlit interactive** (`src/monitoring/streamlit_app.py`)
+  pour l'exploration en direct.
 - **Fiche dataset** : `docs/data_card.md`, régénérée à chaque run, pour suivre
   la dérive des distributions dans le temps.
 

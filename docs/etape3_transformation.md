@@ -171,7 +171,8 @@ en texte et factuelles : `world`, `science`, `technology`, `business`,
 articles** (`type = article`), en excluant les directs sportifs (« liveblogs »),
 mots croisés et galeries photo, dont le texte est inexploitable.
 
-Résultat, vérifié sur une vraie collecte : 45 articles récupérés, 100 % de type
+Résultat, vérifié sur une vraie collecte : une quarantaine d'articles récupérés
+(44 à l'exécution de référence), 100 % de type
 « article », répartis sur des rubriques variées, et **zéro** titre contenant du
 vocabulaire de désinformation. Le label `real` redevient honnête.
 
@@ -192,7 +193,7 @@ défaut : il passe du premier coup, et on ne sait jamais s'il teste vraiment
 quelque chose. Un test écrit *avant*, qu'on a vu échouer puis réussir, prouve
 qu'il détecte réellement un problème. C'est une garantie, pas une formalité.
 
-L'ensemble du travail décrit ici est couvert par **76 tests** qui tournent en
+L'ensemble du travail décrit ici est couvert par **93 tests** qui tournent en
 moins d'une seconde. Ils documentent le comportement attendu et permettront de
 modifier le code plus tard sans crainte de tout casser.
 
@@ -263,17 +264,21 @@ Le pipeline tourne de bout en bout :
 
 | Source | Lignes brutes | Lignes valides | Commentaire |
 |---|---|---|---|
-| Fakeddit | 5 | 5 | échantillon de test (images factices) |
-| Guardian | 45 | 45 | actualité neutre, label `real`, images téléchargées |
-| Snopes | 20 | 13 | 7 articles narratifs sans verdict, écartés |
+| Fakeddit | 5 | 5 | échantillon multimodal embarqué (images de démonstration) |
+| Guardian | 44 | 44 | actualité neutre, label `real`, images téléchargées |
+| Snopes | 20 | 14 | 6 articles narratifs sans verdict, écartés |
 | LIAR | 100 | 100 | déclarations politiques (texte seul) |
 | **Total** | | **163** | |
 
-- **Labels** : `real` = 66, `fake` = 35, `null` (nuancé) = 62.
+- **Labels** : `real` = 68, `fake` = 32, `null` (nuancé) = 63.
 - **Découpage** : 114 train / 24 validation / 25 test, stratifié, sans fuite.
-- **Images** : 58 réellement téléchargées, 105 records en texte seul.
+- **Images** : 63 réellement téléchargées, 100 records en texte seul.
 
-Les 7 articles Snopes écartés ne sont pas un bug : ce sont des articles
+> Chiffres d'une exécution de référence (2026-06-26). Les sources live
+> (Guardian, Snopes) varient légèrement d'une collecte à l'autre ;
+> `docs/etl_kpi_report.md` et `docs/data_card.md` sont régénérés à chaque run.
+
+Les articles Snopes écartés (6 à l'exécution de référence) ne sont pas un bug : ce sont des articles
 narratifs (rubrique « news ») sans verdict formel. Les écarter est voulu.
 
 ## 9. Ce qui reste au backlog : Fakeddit à l'échelle

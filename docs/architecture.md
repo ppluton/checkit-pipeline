@@ -112,13 +112,13 @@ LIAR est **texte seul**, ce qui contredit en apparence le contrat "multimodal" d
 
 #### Choix d'accès aux données
 
-Le loader Python officiel (`load_dataset("liar")`) ne fonctionne plus dans les versions récentes de `datasets` (les scripts de chargement sont dépréciés). On contourne en lisant directement les fichiers Parquet auto-convertis par HuggingFace sur la branche `refs/convert/parquet` :
+Le loader Python officiel (`load_dataset("liar")`) ne fonctionne plus dans les versions récentes de `datasets` (scripts de chargement dépréciés), et la branche Parquet auto-convertie de HuggingFace (`refs/convert/parquet`) n'existe plus pour `ucsbnlp/liar` (sa référence `converts` est vide). On lit donc l'archive canonique de l'auteur :
 
 ```
-https://huggingface.co/datasets/ucsbnlp/liar/resolve/refs%2Fconvert%2Fparquet/default/{train,validation,test}/0000.parquet
+https://www.cs.ucsb.edu/~william/data/liar_dataset.zip
 ```
 
-C'est un pattern propre : pas de script Python externe à exécuter, juste 3 fichiers Parquet stables. `pandas.read_parquet` les lit en quelques secondes avec `pyarrow`.
+C'est la source la plus stable : un ZIP de trois fichiers TSV (`train.tsv`, `valid.tsv`, `test.tsv`), sans dépendance à l'infrastructure HuggingFace. Le label y est déjà une chaîne (`false`, `half-true`, ...), lue directement dans `label_text`.
 
 #### Conséquence sur le DAG
 
@@ -156,13 +156,13 @@ Points de design :
 ## 5. Idempotence et reprise
 
 - **Extraction** : chaque run produit un fichier timestampé distinct. Pas de modification de fichiers existants → idempotent par construction.
-- **Transformation** : à concevoir (Étape 3) pour traiter `data/raw/<source>/*.jsonl` → `data/processed/<batch>.jsonl` avec déduplication sur la clé naturelle (`url` pour Guardian/Snopes, `id` Reddit pour Fakeddit).
-- **Load** : à concevoir (Étape 4) avec `INSERT ... ON CONFLICT (source, natural_key) DO UPDATE` pour ne pas dupliquer en cas de rejeu.
+- **Transformation** : `data/raw/<source>/*.jsonl` → `data/processed/<batch>.jsonl`, puis split déterministe étanche (mêmes contenus forcés dans le même paquet) — rejouable sans duplication.
+- **Load** : chargement Postgres en *full refresh* transactionnel (`TRUNCATE` + `INSERT` de l'ensemble des splits). Idempotent par construction — rejouer laisse la table identique au dataset produit — sans dépendre d'une clé naturelle stable, puisque les UUID sont régénérés à chaque run.
 
 ## 6. Observabilité
 
 - **Logs structurés** : `src/utils/logger.py` centralise le format (`timestamp | module | level | message`). Compatible avec un parsing CloudWatch / GCP Logging.
-- **Métriques applicatives** (Étape 5) : `valid_rate`, `image_coverage`, `extract_duration`, `label_balance`. À exposer via Statsd ou Prometheus, ou simplement loggées en sortie de DAG.
+- **Métriques applicatives** : `valid_rate`, `image_coverage`, `label_balance`, fuites inter-split — calculées par `src/monitoring/kpi.py` et restituées à chaque run par la tâche `report_kpis` (rapport Markdown + figure PNG + app Streamlit). Voir `docs/monitoring.md` pour le plan de surveillance (seuils, alertes, fréquences).
 
 ## 7. Sécurité
 
@@ -170,8 +170,18 @@ Points de design :
 - `.env.example` documente toutes les variables sans aucune valeur sensible.
 - Les clés API ne sont jamais loggées (`logger.info("Querying GDELT: %r", query)` n'inclut pas la clé, qui est dans l'URL).
 - Le `User-Agent` envoyé est identifiable (`checkit-pipeline/0.1 (+github_url)`), permettant aux administrateurs des sites scrapés de nous joindre en cas de souci.
+- **Base de données** : le pipeline se connecte via un rôle **à privilèges minimaux** (`checkit_app`), distinct du rôle de métadonnées Airflow. Il ne possède que le schéma `checkit` et n'a aucun droit sur la base Airflow. Les identifiants passent par `.env`, jamais en clair dans le code.
 
-## 8. Divergences assumées vs le spec d'origine
+## 8. Base de données (Load Postgres)
+
+Le « L » de l'ETL charge le dataset unifié dans **PostgreSQL**, qui sert aussi de **backend de métadonnées Airflow** — un seul conteneur, deux usages.
+
+- **Pourquoi Postgres et pas SQLite** : `airflow standalone` tourne par défaut sur SQLite, qui sérialise les écritures. Sous les 4 extractions parallèles du DAG, ça provoque des « database is locked ». Postgres (avec `LocalExecutor`) supporte la vraie concurrence — les tâches parallèles tournent proprement.
+- **Provisioning** : `docker-compose.yml` lance Postgres 16 ; `docker/postgres/init.sh` crée la base applicative `checkit` et le rôle `checkit_app` à privilèges minimaux (séparé du rôle Airflow).
+- **Chargement** : `src/transformation/load.py` fait un *full refresh* transactionnel de la table `checkit.articles`. Choix assumé plutôt qu'un upsert : le pipeline régénère les UUID à chaque run, donc pas de clé naturelle stable ; le full refresh est idempotent par construction.
+- **Variante cloud (Neon)** : la connexion est une simple URL SQLAlchemy. Pour un Postgres serverless managé (Neon), il suffit de définir `CHECKIT_DB_URL=postgresql+psycopg2://user:pass@ep-xxx.neon.tech/checkit?sslmode=require` — aucun changement de code.
+
+## 9. Divergences assumées vs le spec d'origine
 
 | Spec | Implémentation actuelle | Raison |
 |---|---|---|
@@ -180,6 +190,6 @@ Points de design :
 | Naming `*_extractor.py` | `<source>.py` | Le dossier `src/extraction/` rend le suffixe redondant |
 | `urllib.robotparser` (implicite) | `protego` | Bug stdlib sur les directives non standard |
 | `praw` (Reddit pour Fakeddit images) | Direct TSV streaming | Le TSV multimodal Fakeddit contient déjà les URLs d'image, PRAW est superflu |
-| `load_dataset("liar")` | Lecture Parquet directe via URL HF | Les scripts de chargement sont dépréciés dans `datasets>=3.0`. On utilise la branche auto-convertie `refs/convert/parquet`. |
+| `load_dataset("liar")` | Lecture directe de l'archive ZIP UCSB (TSV) | Scripts de chargement dépréciés dans `datasets>=3.0` et branche `refs/convert/parquet` supprimée pour `ucsbnlp/liar`. On lit le ZIP canonique de l'auteur. |
 
 Toutes ces divergences sont des améliorations qualité ou des contournements de limites techniques, jamais des raccourcis fonctionnels. Le contrat de sortie (schéma unifié, JSON Lines, séparation extract/transform/load) reste strictement celui du spec.

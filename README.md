@@ -139,11 +139,39 @@ Chaque commande écrit un fichier `data/raw/<source>/<source>_<timestamp>.jsonl`
 ### Pipeline complet via Airflow
 
 ```bash
+docker compose up -d   # Postgres : backend Airflow + cible du load
 export AIRFLOW_HOME=$(pwd)/.airflow
+export AIRFLOW__CORE__DAGS_FOLDER=$(pwd)/dags
+export AIRFLOW__CORE__LOAD_EXAMPLES=False
+export AIRFLOW__CORE__EXECUTOR=LocalExecutor
+export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@localhost:5433/airflow
 uv run airflow standalone
 ```
 
 Interface : http://localhost:8080 — le DAG `checkit_pipeline` apparaît dans la liste.
+Le backend Postgres évite la contention SQLite sous les extractions parallèles.
+
+> [!NOTE]
+> **Exécution du DAG : `dags test` vs `standalone`.**
+> Deux façons de lancer le pipeline, avec un comportement différent selon l'environnement :
+>
+> - **`uv run airflow dags test checkit_pipeline`** exécute tout le DAG dans un seul
+>   processus, séquentiellement. C'est le mode **fiable** : il termine vert sur les
+>   9 tâches (logs à l'appui) et constitue la preuve d'exécution recommandée.
+> - **`uv run airflow standalone`** lance l'ordonnanceur complet + l'interface web +
+>   l'executor (un sous-processus par tâche). C'est le mode qui fournit le **graphe
+>   visuel**.
+>
+> **Limite connue d'Airflow 3.x en mode standalone** : sur certaines machines, la
+> couche d'exécution (task-SDK + serveur d'API) peut laisser des **tâches très
+> rapides** (ex. `extract_fakeddit`, qui lit un échantillon de 5 lignes) bloquées en
+> état `running` alors qu'elles ont fini — la complétion n'est pas remontée à
+> l'ordonnanceur. Le passage à Postgres a supprimé la contention de verrou SQLite
+> (`database is locked`), mais ce point relève de l'infrastructure d'orchestration,
+> **pas du pipeline** : le code passe vert à chaque `dags test`.
+>
+> **Recommandation** : utiliser `dags test` comme preuve d'exécution, et l'UI
+> standalone pour visualiser et présenter le graphe des tâches.
 
 ### Tests & lint
 
@@ -158,10 +186,10 @@ uv run ruff format .
 | Étape | Livrable | Statut | Détail |
 |---|---|---|---|
 | 1 | Exploration des sources | ✅ | [`docs/rapport_sources.md`](docs/rapport_sources.md) — 6 sources évaluées, critères qualité/volume/droits |
-| 2 | Scripts d'extraction | ✅ (4/6 sources) | `src/extraction/{fakeddit,guardian,snopes,liar}.py` testés sur données réelles |
-| 3 | Transformation + schéma | 🚧 Schéma défini, pipeline à coder | `src/transformation/schema.py` ✅ · `cleaner`/`normalizer`/`validator` 🔲 |
-| 4 | DAG Airflow + Load PostgreSQL | 🚧 Squelette DAG en place | Tâche `load_to_db` + connexion Airflow à configurer |
-| 5 | KPIs & monitoring | 🔲 Backlog | `valid_rate`, `image_coverage`, `label_balance`, alertes email |
+| 2 | Scripts d'extraction | ✅ (4/6 sources) | `src/extraction/{fakeddit,guardian,snopes,liar}.py`, exécution sans intervention, logs + gestion d'erreurs |
+| 3 | Transformation + schéma | ✅ | `cleaner` → `normalizer` → `validator` → `dataset` → `images` ; schéma Pydantic v2 + Mermaid |
+| 4 | DAG Airflow (ETL) | ✅ | `dags/checkit_pipeline_dag.py` — extract ×4 → transform → split → images → **load Postgres** → KPI, exécuté vert de bout en bout ; backend Airflow + base applicative en Postgres (Docker) |
+| 5 | KPIs & monitoring | ✅ | `src/monitoring/` — rapport MD, figure PNG, app Streamlit interactive ; plan `docs/monitoring.md` |
 
 ## Décisions techniques marquantes
 

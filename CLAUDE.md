@@ -10,10 +10,12 @@ Doc de cadrage : `Module_03_Etape1_Sources_Exploration.md`.
 
 - **Langage** : Python 3.11+
 - **Gestion des deps** : **uv** (pas pip, pas poetry). Manifeste : `pyproject.toml`, lockfile : `uv.lock` (commité).
-- **Orchestration** : Apache Airflow
+- **Orchestration** : Apache Airflow (backend de métadonnées : Postgres)
 - **Extraction** : `requests`, `feedparser`, `beautifulsoup4`, `praw` (Reddit), `datasets` (HuggingFace)
 - **Traitement** : `pandas`
 - **Validation** : `pydantic>=2`
+- **Base de données (Load)** : PostgreSQL via Docker (`docker-compose.yml`), accès `sqlalchemy` + `psycopg2`
+- **Monitoring** : `matplotlib` (PNG) + `streamlit` (interactif)
 - **Config** : `python-dotenv`
 - **Tests** : `pytest`
 - **Lint/format** : `ruff` (configuré dans `pyproject.toml`)
@@ -35,7 +37,7 @@ Doc de cadrage : `Module_03_Etape1_Sources_Exploration.md`.
 | FAKEDDIT | Texte + Image | TSV streaming | ✅ Implémenté |
 | The Guardian | Texte + Thumbnail | API REST (clé gratuite) | ✅ Implémenté |
 | Snopes | Texte + Image | RSS + ClaimReview JSON-LD + BS4 | ✅ Implémenté |
-| LIAR | Texte seul ⚠️ NLP-only | HuggingFace parquet | ✅ Implémenté |
+| LIAR | Texte seul ⚠️ NLP-only | Archive UCSB (TSV) | ✅ Implémenté |
 | FakeNewsNet | Texte + Image URLs | Clone GitHub + scraping | 🔲 Backlog |
 | NewsCLIPpings | Texte + Image | GitHub + VisualNews | 🔲 Backlog (vision) |
 
@@ -108,8 +110,15 @@ Toute source doit être normalisée vers :
 uv sync
 cp .env.example .env
 
-# Airflow standalone (dev)
+# Base de données (Postgres : backend Airflow + cible du load)
+docker compose up -d
+
+# Airflow standalone (dev) — backend Postgres, pas de verrou SQLite
 export AIRFLOW_HOME=$(pwd)/.airflow
+export AIRFLOW__CORE__DAGS_FOLDER=$(pwd)/dags
+export AIRFLOW__CORE__LOAD_EXAMPLES=False
+export AIRFLOW__CORE__EXECUTOR=LocalExecutor
+export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@localhost:5433/airflow
 uv run airflow standalone
 
 # Lancer une extraction isolée
@@ -117,6 +126,13 @@ uv run python -m src.extraction.fakeddit
 uv run python -m src.extraction.guardian
 uv run python -m src.extraction.snopes
 uv run python -m src.extraction.liar
+
+# Charger le dataset en base (le « L » de l'ETL)
+uv run python -m src.transformation.load
+
+# Monitoring KPI
+uv run python -m src.monitoring.dashboard          # rapport MD + figure PNG
+uv run streamlit run src/monitoring/streamlit_app.py  # tableau de bord interactif
 
 # Tests
 uv run pytest
@@ -132,4 +148,4 @@ uv run ruff format .
 - **The Guardian** : 5000 req/jour avec clé developer gratuite, rate limit 1 req/s respecté côté code (`RATE_LIMIT_SLEEP`).
 - **Snopes** : robots.txt à vérifier avant tout scraping automatisé. La stdlib `urllib.robotparser` fail à cause du directive non-standard `Content-Signal:` — on utilise `protego` à la place.
 - **FAKEDDIT** : ~1M de posts → ne pas tout charger en mémoire, streamer.
-- **LIAR** : `load_dataset("liar")` est cassé (script loader déprécié dans `datasets>=3`) — on lit directement les parquet de la branche `refs/convert/parquet` de HF.
+- **LIAR** : `load_dataset("liar")` est cassé (script loader déprécié dans `datasets>=3`) et la branche `refs/convert/parquet` de HF a disparu (`converts` vide) — on lit l'archive ZIP canonique d'UCSB (`liar_dataset.zip`, 3 TSV).

@@ -7,15 +7,15 @@
 | Source | Brut | Valides | Rejetés | Taux de rejet |
 | --- | --- | --- | --- | --- |
 | fakeddit | 5 | 5 | 0 | 0% |
-| guardian | 45 | 45 | 0 | 0% |
-| snopes | 20 | 13 | 7 | 35% |
+| guardian | 44 | 44 | 0 | 0% |
+| snopes | 20 | 14 | 6 | 30% |
 | liar | 100 | 100 | 0 | 0% |
 
 ## Dataset unifié
 
 - Total : **163** records
-- Labels : fake 35, real 66, null 62
-- Couverture image réelle : **36%** (58/163)
+- Labels : fake 32, real 68, null 63
+- Couverture image réelle : **39%** (63/163)
 
 ## Découpage et intégrité
 

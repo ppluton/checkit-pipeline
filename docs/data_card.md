@@ -1,4 +1,4 @@
-# Fiche dataset — CheckIt.AI (généré le 2026-05-28)
+# Fiche dataset — CheckIt.AI (généré le 2026-06-26)
 
 > Document généré automatiquement par `src/transformation/dataset.py`.
 > Ne pas éditer à la main : relancer la génération met les chiffres à jour.
@@ -14,17 +14,17 @@
 | Source | Records |
 | --- | --- |
 | fakeddit | 5 |
-| guardian | 45 |
+| guardian | 44 |
 | liar | 100 |
-| snopes | 13 |
+| snopes | 14 |
 
 ## Répartition des labels
 
 | Label | Records |
 | --- | --- |
-| fake | 35 |
-| real | 66 |
-| null | 62 |
+| fake | 32 |
+| real | 68 |
+| null | 63 |
 
 Le label `null` n'est pas une absence d'information : il marque les verdicts
 *nuancés* (Mixture, half-true…) pour lesquels on refuse de forcer un binaire
@@ -32,12 +32,12 @@ trompeur. La nuance d'origine est conservée dans `label_detail`.
 
 ## Couverture image (multimodal)
 
-- Avec image : 58
-- Sans image (texte seul) : 105
+- Avec image : 63
+- Sans image (texte seul) : 100
 
 ## Longueur de contenu (caractères)
 
-- min 24 · médiane 125 · moyenne 1342.8 · max 12363
+- min 24 · médiane 124 · moyenne 1275.0 · max 16176
 
 ## Découpage train / validation / test
 
@@ -45,7 +45,7 @@ trompeur. La nuance d'origine est conservée dans `label_detail`.
 | --- | --- | --- | --- | --- | --- |
 | train | 3 | 31 | 70 | 10 | 114 |
 | validation | 0 | 7 | 15 | 2 | 24 |
-| test | 2 | 7 | 15 | 1 | 25 |
+| test | 2 | 6 | 15 | 2 | 25 |
 
 **Méthodologie.** Split déterministe (seed fixe), stratifié par
 `(source × label)` pour que chaque partition garde le même mélange de sources
